@@ -14,7 +14,7 @@
 - [X] 生成SGBM深度、质量图和目标级offset监督；
 - [X] 实现可训练的 `stereo_ddd` 模型、8个输出头和联合损失；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
-- [ ] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40。
+- [x] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40（最佳权重第10轮，Car Moderate 3D AP_R40 30.88）。
 
 ## 快速运行
 
@@ -61,6 +61,10 @@ CPU仅适合冒烟验证；正式训练应在NVIDIA GPU环境把 `--gpus -1` 改
 - `opt.txt` 和 `logs_*/log.txt`：完整参数与文本日志。
 
 在日志重定向或CI环境中可添加 `--no_progress_bar` 关闭动态进度条；`--print_iter N` 可每 N 次迭代额外输出一行固定文本。
+
+正式训练脚本默认每5轮验证一次；若连续2次验证损失未改善至少0.01，训练会自动早停并保留 `model_best.pth`，避免训练集继续下降而验证集恶化。
+
+使用 `src/main.py ... --test --load_model <权重>` 完整推理验证集后，会生成KITTI格式预测、PR统计文件和 `kitti_ap_r40.json`，其中包含Car、Pedestrian、Cyclist的2D、AOS、BEV和3D AP_R40。
 
 ## 数据学习工具
 

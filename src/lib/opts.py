@@ -96,6 +96,13 @@ class opts(object):
                              help='default: #samples / batch_size.')
     self.parser.add_argument('--val_intervals', type=int, default=5,
                              help='number of epochs to run validation.')
+    self.parser.add_argument('--val_num_workers', type=int, default=4,
+                             help='验证集DataLoader进程数')
+    self.parser.add_argument('--early_stopping_patience', type=int, default=0,
+                             help='连续多少次验证未改善后停止，0表示关闭')
+    self.parser.add_argument('--early_stopping_min_delta', type=float,
+                             default=0.0,
+                             help='验证指标至少改善多少才重置早停计数')
     self.parser.add_argument('--trainval', action='store_true',
                              help='include validation in training and '
                                   'test on test set')

@@ -45,7 +45,7 @@ def main(opt):
       Dataset(opt, 'val'), 
       batch_size=1, 
       shuffle=False,
-      num_workers=1,
+      num_workers=opt.val_num_workers,
       pin_memory=opt.device.type == 'cuda'
   )
 
@@ -65,6 +65,7 @@ def main(opt):
 
   print('Starting training...')
   best = 1e10
+  validations_without_improvement = 0
   for epoch in range(start_epoch + 1, opt.num_epochs + 1):
     mark = epoch if opt.save_all else 'last'
     log_dict_train, _ = trainer.train(epoch, train_loader)
@@ -81,10 +82,14 @@ def main(opt):
       for k, v in log_dict_val.items():
         logger.scalar_summary('val_{}'.format(k), v, epoch)
         logger.write('{} {:8f} | '.format(k, v))
-      if log_dict_val[opt.metric] < best:
-        best = log_dict_val[opt.metric]
+      current_metric = log_dict_val[opt.metric]
+      if current_metric < best - opt.early_stopping_min_delta:
+        best = current_metric
+        validations_without_improvement = 0
         save_model(os.path.join(opt.save_dir, 'model_best.pth'), 
                    epoch, model)
+      else:
+        validations_without_improvement += 1
     else:
       save_model(os.path.join(opt.save_dir, 'model_last.pth'), 
                  epoch, model, optimizer)
@@ -95,6 +100,13 @@ def main(opt):
         epoch, opt.num_epochs, log_dict_train['loss'], current_lr,
         os.path.join(opt.save_dir, 'results.png')))
     logger.write('\n')
+    if (log_dict_val is not None and opt.early_stopping_patience > 0 and
+        validations_without_improvement >= opt.early_stopping_patience):
+      message = ('早停：连续{}次验证未改善，最佳{}为{:.4f}。\n'.format(
+          validations_without_improvement, opt.metric, best))
+      print(message.strip())
+      logger.write(message)
+      break
     if epoch in opt.lr_step:
       save_model(os.path.join(opt.save_dir, 'model_{}.pth'.format(epoch)), 
                  epoch, model, optimizer)

@@ -10,6 +10,8 @@ import json
 import cv2
 import os
 import math
+import shutil
+import subprocess
 
 import torch.utils.data as data
 
@@ -83,7 +85,60 @@ class KITTI(data.Dataset):
 
   def run_eval(self, results, save_dir):
     self.save_results(results, save_dir)
-    os.system('./tools/kitti_eval/evaluate_object_3d_offline ' + \
-              '../data/kitti/training/label_val ' + \
-              '{}/results/'.format(save_dir))
+    gt_dir = os.path.join(save_dir, 'ground_truth')
+    eval_results_dir = os.path.join(save_dir, 'eval_results')
+    os.makedirs(gt_dir, exist_ok=True)
+    os.makedirs(eval_results_dir, exist_ok=True)
+    source_dir = os.path.join(self.data_dir, 'training', 'label_2')
+    # 官方评估器要求输入从000000开始连续编号，3dop划分的原始帧号并不连续。
+    for eval_id, img_id in enumerate(sorted(results, key=int)):
+      source_name = '{:06d}.txt'.format(int(img_id))
+      eval_name = '{:06d}.txt'.format(eval_id)
+      shutil.copy2(os.path.join(source_dir, source_name),
+                   os.path.join(gt_dir, eval_name))
+      shutil.copy2(os.path.join(save_dir, 'results', source_name),
+                   os.path.join(eval_results_dir, eval_name))
+
+    eval_binary = os.path.abspath(os.path.join(
+        os.path.dirname(__file__), '..', '..', '..', 'tools', 'kitti_eval',
+        'evaluate_object_3d_offline'))
+    # KITTI 官方评估程序内部直接拼接目录和文件名，因此预测目录末尾必须有分隔符。
+    results_dir = eval_results_dir + os.sep
+    completed = subprocess.run(
+        [eval_binary, gt_dir, results_dir],
+        check=True, capture_output=True, text=True)
+    eval_log = os.path.join(save_dir, 'kitti_eval.log')
+    with open(eval_log, 'w', encoding='utf-8') as stream:
+      stream.write(completed.stdout)
+      stream.write(completed.stderr)
+    self._save_ap_r40(save_dir)
+
+  @staticmethod
+  def _save_ap_r40(save_dir):
+    """从41点PR曲线计算KITTI AP_R40，跳过recall=0的第一个点。"""
+    difficulties = ['easy', 'moderate', 'hard']
+    suffixes = {
+        '2d': 'detection',
+        'aos': 'orientation',
+        'bev': 'detection_ground',
+        '3d': 'detection_3d',
+    }
+    metrics = {}
+    for class_name in ('car', 'pedestrian', 'cyclist'):
+      metrics[class_name] = {}
+      for metric_name, suffix in suffixes.items():
+        path = os.path.join(
+            save_dir, 'stats_{}_{}.txt'.format(class_name, suffix))
+        if not os.path.exists(path):
+          continue
+        rows = []
+        with open(path, 'r') as stream:
+          for line in stream:
+            values = [float(value) for value in line.split()]
+            rows.append(100.0 * sum(values[1:41]) / 40.0)
+        metrics[class_name][metric_name] = {
+            name: value for name, value in zip(difficulties, rows)}
+    with open(os.path.join(save_dir, 'kitti_ap_r40.json'),
+              'w', encoding='utf-8') as stream:
+      json.dump(metrics, stream, indent=2, ensure_ascii=False)
     
