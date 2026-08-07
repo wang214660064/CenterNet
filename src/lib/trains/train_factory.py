@@ -6,10 +6,12 @@ from .ctdet import CtdetTrainer
 from .ddd import DddTrainer
 from .exdet import ExdetTrainer
 from .multi_pose import MultiPoseTrainer
+from .stereo_ddd import StereoDddTrainer
 
 train_factory = {
   'exdet': ExdetTrainer, 
   'ddd': DddTrainer,
   'ctdet': CtdetTrainer,
   'multi_pose': MultiPoseTrainer, 
+  'stereo_ddd': StereoDddTrainer,
 }

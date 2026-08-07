@@ -6,6 +6,7 @@ debug/*
 *.mat
 src/.vscode/*
 preds/*
+exp/stereo_stage1/
 *.h5
 *.pth
 *.checkpoint

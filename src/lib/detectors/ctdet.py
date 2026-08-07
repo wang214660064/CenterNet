@@ -11,8 +11,7 @@ import torch
 try:
   from external.nms import soft_nms
 except:
-  print('NMS not imported! If you need it,'
-        ' do \n cd $CenterNet_ROOT/src/lib/external \n make')
+  soft_nms = None
 from models.decode import ctdet_decode
 from models.utils import flip_tensor
 from utils.image import get_affine_transform
@@ -62,6 +61,10 @@ class CtdetDetector(BaseDetector):
       results[j] = np.concatenate(
         [detection[j] for detection in detections], axis=0).astype(np.float32)
       if len(self.scales) > 1 or self.opt.nms:
+         if soft_nms is None:
+           raise RuntimeError(
+             'NMS 扩展未编译，请进入 src/lib/external 执行 make，'
+             '或关闭多尺度测试和 --nms。')
          soft_nms(results[j], Nt=0.5, method=2)
     scores = np.hstack(
       [results[j][:, 4] for j in range(1, self.num_classes + 1)])

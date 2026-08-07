@@ -5,15 +5,18 @@ from __future__ import print_function
 import pickle
 import json
 import numpy as np
-import cv2
 DATA_PATH = '../../data/kitti/'
 DEBUG = False
+if DEBUG:
+  import cv2
 # VAL_PATH = DATA_PATH + 'training/label_val/'
 import os
-SPLITS = ['3dop', 'subcnn'] 
+# 本项目使用标准 3DOP 划分，不再要求额外的 SubCNN 划分文件。
+SPLITS = ['3dop']
 import _init_paths
-from utils.ddd_utils import compute_box_3d, project_to_image, alpha2rot_y
-from utils.ddd_utils import draw_box_3d, unproject_2d_to_3d
+if DEBUG:
+  from utils.ddd_utils import compute_box_3d, project_to_image, alpha2rot_y
+  from utils.ddd_utils import draw_box_3d, unproject_2d_to_3d
 
 '''
 #Values    Name      Description
@@ -148,5 +151,6 @@ for SPLIT in SPLITS:
     print("# annotations: ", len(ret['annotations']))
     # import pdb; pdb.set_trace()
     out_path = '{}/annotations/kitti_{}_{}.json'.format(DATA_PATH, SPLIT, split)
-    json.dump(ret, open(out_path, 'w'))
+    with open(out_path, 'w') as out_file:
+      json.dump(ret, out_file, indent=2, ensure_ascii=False)
   

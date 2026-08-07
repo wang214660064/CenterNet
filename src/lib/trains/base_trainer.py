@@ -4,7 +4,7 @@ from __future__ import print_function
 
 import time
 import torch
-from progress.bar import Bar
+from tqdm.auto import tqdm
 from models.data_parallel import DataParallel
 from utils.utils import AverageMeter
 
@@ -16,7 +16,11 @@ class ModelWithLoss(torch.nn.Module):
     self.loss = loss
   
   def forward(self, batch):
-    outputs = self.model(batch['input'])
+    if 'sgbm_depth' in batch:
+      outputs = self.model(
+          batch['input'], batch['sgbm_depth'], batch['sgbm_quality'])
+    else:
+      outputs = self.model(batch['input'])
     loss, loss_stats = self.loss(outputs, batch)
     return outputs[-1], loss, loss_stats
 
@@ -57,7 +61,12 @@ class BaseTrainer(object):
     data_time, batch_time = AverageMeter(), AverageMeter()
     avg_loss_stats = {l: AverageMeter() for l in self.loss_stats}
     num_iters = len(data_loader) if opt.num_iters < 0 else opt.num_iters
-    bar = Bar('{}/{}'.format(opt.task, opt.exp_id), max=num_iters)
+    progress = tqdm(
+        total=num_iters,
+        desc='{} {}/{}'.format(phase, epoch, opt.num_epochs),
+        dynamic_ncols=True,
+        disable=opt.no_progress_bar)
+    epoch_start = time.time()
     end = time.time()
     for iter_id, batch in enumerate(data_loader):
       if iter_id >= num_iters:
@@ -76,21 +85,31 @@ class BaseTrainer(object):
       batch_time.update(time.time() - end)
       end = time.time()
 
-      Bar.suffix = '{phase}: [{0}][{1}/{2}]|Tot: {total:} |ETA: {eta:} '.format(
-        epoch, iter_id, num_iters, phase=phase,
-        total=bar.elapsed_td, eta=bar.eta_td)
       for l in avg_loss_stats:
         avg_loss_stats[l].update(
           loss_stats[l].mean().item(), batch['input'].size(0))
-        Bar.suffix = Bar.suffix + '|{} {:.4f} '.format(l, avg_loss_stats[l].avg)
-      if not opt.hide_data_time:
-        Bar.suffix = Bar.suffix + '|Data {dt.val:.3f}s({dt.avg:.3f}s) ' \
-          '|Net {bt.avg:.3f}s'.format(dt=data_time, bt=batch_time)
+      gpu_memory = 0.0
+      if opt.device.type == 'cuda':
+        gpu_memory = torch.cuda.max_memory_reserved() / (1024 ** 3)
+      instances = int(batch['reg_mask'].sum().item()) if 'reg_mask' in batch else 0
+      display = {
+          'mem': '{:.2f}G'.format(gpu_memory),
+          'loss': '{:.3f}'.format(avg_loss_stats['loss'].avg),
+          'hm': '{:.3f}'.format(avg_loss_stats.get('hm_loss', AverageMeter()).avg),
+          'dep': '{:.3f}'.format(avg_loss_stats.get('dep_loss', AverageMeter()).avg),
+          'dim': '{:.3f}'.format(avg_loss_stats.get('dim_loss', AverageMeter()).avg),
+          'rot': '{:.3f}'.format(avg_loss_stats.get('rot_loss', AverageMeter()).avg),
+          'offset': '{:.3f}'.format(
+              avg_loss_stats.get('depth_offset_loss', AverageMeter()).avg),
+          'objs': instances,
+          'size': '{}x{}'.format(batch['input'].shape[-2], batch['input'].shape[-1]),
+      }
+      progress.set_postfix(display)
+      progress.update(1)
       if opt.print_iter > 0:
         if iter_id % opt.print_iter == 0:
-          print('{}/{}| {}'.format(opt.task, opt.exp_id, Bar.suffix)) 
-      else:
-        bar.next()
+          progress.write('{} iter {}/{} loss {:.4f}'.format(
+              phase, iter_id + 1, num_iters, avg_loss_stats['loss'].avg))
       
       if opt.debug > 0:
         self.debug(batch, output, iter_id)
@@ -99,9 +118,9 @@ class BaseTrainer(object):
         self.save_result(output, batch, results)
       del output, loss, loss_stats
     
-    bar.finish()
+    progress.close()
     ret = {k: v.avg for k, v in avg_loss_stats.items()}
-    ret['time'] = bar.elapsed_td.total_seconds() / 60.
+    ret['time'] = (time.time() - epoch_start) / 60.
     return ret, results
   
   def debug(self, batch, output, iter_id):

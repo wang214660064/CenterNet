@@ -1,7 +1,11 @@
 opencv-python
+numpy<2
+Pillow
+pycocotools
 Cython
 numba
 progress
+tqdm
 matplotlib
 easydict
 scipy

@@ -46,7 +46,7 @@ def main(opt):
       batch_size=1, 
       shuffle=False,
       num_workers=1,
-      pin_memory=True
+      pin_memory=opt.device.type == 'cuda'
   )
 
   if opt.test:
@@ -59,7 +59,7 @@ def main(opt):
       batch_size=opt.batch_size, 
       shuffle=True,
       num_workers=opt.num_workers,
-      pin_memory=True,
+      pin_memory=opt.device.type == 'cuda',
       drop_last=True
   )
 
@@ -68,6 +68,7 @@ def main(opt):
   for epoch in range(start_epoch + 1, opt.num_epochs + 1):
     mark = epoch if opt.save_all else 'last'
     log_dict_train, _ = trainer.train(epoch, train_loader)
+    log_dict_val = None
     logger.write('epoch: {} |'.format(epoch))
     for k, v in log_dict_train.items():
       logger.scalar_summary('train_{}'.format(k), v, epoch)
@@ -87,6 +88,12 @@ def main(opt):
     else:
       save_model(os.path.join(opt.save_dir, 'model_last.pth'), 
                  epoch, model, optimizer)
+    current_lr = optimizer.param_groups[0]['lr']
+    logger.log_epoch(epoch, current_lr, log_dict_train, log_dict_val,
+                     None if best == 1e10 else best)
+    print('Epoch {}/{} 完成 | loss {:.4f} | lr {:.2e} | {}'.format(
+        epoch, opt.num_epochs, log_dict_train['loss'], current_lr,
+        os.path.join(opt.save_dir, 'results.png')))
     logger.write('\n')
     if epoch in opt.lr_step:
       save_model(os.path.join(opt.save_dir, 'model_{}.pth'.format(epoch)), 

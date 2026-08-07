@@ -147,6 +147,8 @@ class DddDataset(data.Dataset):
       ret.update({'wh': wh})
     if self.opt.reg_offset:
       ret.update({'reg': reg})
+    if self.opt.task == 'stereo_ddd':
+      ret['stereo_trans_output'] = trans_output.astype(np.float32)
     if self.opt.debug > 0 or not ('train' in self.split):
       gt_det = np.array(gt_det, dtype=np.float32) if len(gt_det) > 0 else \
                np.zeros((1, 18), dtype=np.float32)

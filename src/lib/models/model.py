@@ -12,6 +12,7 @@ from .networks.dlav0 import get_pose_net as get_dlav0
 from .networks.pose_dla_dcn import get_pose_net as get_dla_dcn
 from .networks.resnet_dcn import get_pose_net as get_pose_net_dcn
 from .networks.large_hourglass import get_large_hourglass_net
+from .networks.stereo_pose_dla_dcn import get_pose_net as get_stereo_dla_dcn
 
 _model_factory = {
   'res': get_pose_net, # default Resnet with deconv
@@ -19,11 +20,16 @@ _model_factory = {
   'dla': get_dla_dcn,
   'resdcn': get_pose_net_dcn,
   'hourglass': get_large_hourglass_net,
+  'stereo_dla': get_stereo_dla_dcn,
 }
 
 def create_model(arch, heads, head_conv):
-  num_layers = int(arch[arch.find('_') + 1:]) if '_' in arch else 0
-  arch = arch[:arch.find('_')] if '_' in arch else arch
+  if arch.startswith('stereo_dla_'):
+    num_layers = int(arch.rsplit('_', 1)[1])
+    arch = 'stereo_dla'
+  else:
+    num_layers = int(arch[arch.find('_') + 1:]) if '_' in arch else 0
+    arch = arch[:arch.find('_')] if '_' in arch else arch
   get_model = _model_factory[arch]
   model = get_model(num_layers=num_layers, heads=heads, head_conv=head_conv)
   return model
@@ -93,4 +99,3 @@ def save_model(path, epoch, model, optimizer=None):
   if not (optimizer is None):
     data['optimizer'] = optimizer.state_dict()
   torch.save(data, path)
-

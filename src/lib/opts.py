@@ -11,7 +11,7 @@ class opts(object):
     self.parser = argparse.ArgumentParser()
     # basic experiment setting
     self.parser.add_argument('task', default='ctdet',
-                             help='ctdet | ddd | multi_pose | exdet')
+                             help='ctdet | ddd | stereo_ddd | multi_pose | exdet')
     self.parser.add_argument('--dataset', default='coco',
                              help='coco | kitti | coco_hp | pascal')
     self.parser.add_argument('--exp_id', default='default')
@@ -48,6 +48,8 @@ class opts(object):
                              help='disable progress bar and print to screen.')
     self.parser.add_argument('--hide_data_time', action='store_true',
                              help='not display time during training.')
+    self.parser.add_argument('--no_progress_bar', action='store_true',
+                             help='关闭终端动态训练进度条')
     self.parser.add_argument('--save_all', action='store_true',
                              help='save model to disk every 5 epochs.')
     self.parser.add_argument('--metric', default='loss', 
@@ -174,6 +176,18 @@ class opts(object):
     self.parser.add_argument('--rot_weight', type=float, default=1,
                              help='loss weight for orientation.')
     self.parser.add_argument('--peak_thresh', type=float, default=0.2)
+    self.parser.add_argument('--depth_offset_weight', type=float, default=1.0,
+                             help='SGBM深度offset不确定性损失权重')
+    self.parser.add_argument('--stereo_num_disparities', type=int, default=128,
+                             help='SGBM视差搜索范围，必须为16的倍数')
+    self.parser.add_argument('--stereo_block_size', type=int, default=5,
+                             help='SGBM匹配窗口，必须为正奇数')
+    self.parser.add_argument('--stereo_max_depth', type=float, default=80.0,
+                             help='参与offset训练的最大SGBM深度')
+    self.parser.add_argument('--stereo_min_quality', type=float, default=0.5,
+                             help='启用SGBM修正深度的最低质量')
+    self.parser.add_argument('--depth_offset_max_uncertainty', type=float, default=10.0,
+                             help='启用offset修正的最大预测标准差')
     
     # task
     # ctdet
@@ -304,7 +318,7 @@ class opts(object):
                    'hm_c': opt.num_classes}
       if opt.reg_offset:
         opt.heads.update({'reg_t': 2, 'reg_l': 2, 'reg_b': 2, 'reg_r': 2})
-    elif opt.task == 'ddd':
+    elif opt.task in ['ddd', 'stereo_ddd']:
       # assert opt.dataset in ['gta', 'kitti', 'viper']
       opt.heads = {'hm': opt.num_classes, 'dep': 1, 'rot': 8, 'dim': 3}
       if opt.reg_bbox:
@@ -312,6 +326,8 @@ class opts(object):
           {'wh': 2})
       if opt.reg_offset:
         opt.heads.update({'reg': 2})
+      if opt.task == 'stereo_ddd':
+        opt.heads.update({'depth_offset': 1, 'depth_log_variance': 1})
     elif opt.task == 'ctdet':
       # assert opt.dataset in ['pascal', 'coco']
       opt.heads = {'hm': opt.num_classes,
@@ -348,6 +364,9 @@ class opts(object):
         'flip_idx': [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10], 
                      [11, 12], [13, 14], [15, 16]]},
       'ddd': {'default_resolution': [384, 1280], 'num_classes': 3, 
+                'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
+                'dataset': 'kitti'},
+      'stereo_ddd': {'default_resolution': [384, 1280], 'num_classes': 3,
                 'mean': [0.485, 0.456, 0.406], 'std': [0.229, 0.224, 0.225],
                 'dataset': 'kitti'},
     }
