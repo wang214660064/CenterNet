@@ -24,7 +24,8 @@ def ddd_post_process_2d(dets, c, s, opt):
   # dets: batch x max_dets x dim
   # return 1-based class det list
   ret = []
-  include_wh = dets.shape[2] > 16
+  include_wh = opt.reg_bbox
+  include_projected_center = 'proj_center_offset' in opt.heads
   for i in range(dets.shape[0]):
     top_preds = {}
     dets[i, :, :2] = transform_preds(
@@ -43,10 +44,19 @@ def ddd_post_process_2d(dets, c, s, opt):
           transform_preds(
             dets[i, inds, 15:17], c[i], s[i], (opt.output_w, opt.output_h))
           .astype(np.float32)], axis=1)
+      if include_projected_center:
+        bbox_center_start = 17 if include_wh else 15
+        top_preds[j + 1] = np.concatenate([
+          top_preds[j + 1],
+          transform_preds(
+            dets[i, inds, bbox_center_start:bbox_center_start + 2],
+            c[i], s[i], (opt.output_w, opt.output_h)).astype(np.float32)],
+          axis=1)
     ret.append(top_preds)
   return ret
 
-def ddd_post_process_3d(dets, calibs):
+def ddd_post_process_3d(dets, calibs, include_wh=True,
+                        include_projected_center=False):
   # dets: batch x max_dets x dim
   # return 1-based class det list
   ret = []
@@ -60,11 +70,18 @@ def ddd_post_process_3d(dets, calibs):
         alpha = dets[i][cls_ind][j][3]
         depth = dets[i][cls_ind][j][4]
         dimensions = dets[i][cls_ind][j][5:8]
-        wh = dets[i][cls_ind][j][8:10]
+        wh = dets[i][cls_ind][j][8:10] if include_wh else np.zeros(2)
         locations, rotation_y = ddd2locrot(
           center, alpha, dimensions, depth, calibs[0])
-        bbox = [center[0] - wh[0] / 2, center[1] - wh[1] / 2,
-                center[0] + wh[0] / 2, center[1] + wh[1] / 2]
+        bbox_center = center
+        if include_projected_center:
+          bbox_center_start = 10 if include_wh else 8
+          bbox_center = dets[i][cls_ind][j][
+              bbox_center_start:bbox_center_start + 2]
+        bbox = [bbox_center[0] - wh[0] / 2,
+                bbox_center[1] - wh[1] / 2,
+                bbox_center[0] + wh[0] / 2,
+                bbox_center[1] + wh[1] / 2]
         pred = [alpha] + bbox + dimensions.tolist() + \
                locations.tolist() + [rotation_y, score]
         preds[cls_ind].append(pred)
@@ -76,7 +93,9 @@ def ddd_post_process(dets, c, s, calibs, opt):
   # dets: batch x max_dets x dim
   # return 1-based class det list
   dets = ddd_post_process_2d(dets, c, s, opt)
-  dets = ddd_post_process_3d(dets, calibs)
+  dets = ddd_post_process_3d(
+      dets, calibs, include_wh=opt.reg_bbox,
+      include_projected_center='proj_center_offset' in opt.heads)
   return dets
 
 

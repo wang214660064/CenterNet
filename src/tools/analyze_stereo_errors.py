@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""分解KITTI Stereo DDD的二维、深度、尺寸和朝向误差。"""
+"""分解KITTI Stereo DDD的二维、3D中心、深度、尺寸和朝向误差。"""
 
 import argparse
 import csv
@@ -123,11 +123,14 @@ def summarize(records):
       'recall_at_2d_iou_0_5': len(matched) / max(len(records), 1),
   }
   for key in ('bbox_iou', 'depth_abs_error_m', 'depth_relative_error',
+              'location_x_abs_error_m', 'location_y_abs_error_m',
+              'location_xy_error_m',
               'sgbm_abs_error_m', 'dimension_mae_m', 'dimension_relative_error',
               'yaw_error_deg', 'bev_iou', 'iou_3d', 'iou_3d_fix_depth',
-              'iou_3d_fix_dimensions', 'iou_3d_fix_yaw'):
+              'iou_3d_fix_center_xy', 'iou_3d_fix_dimensions',
+              'iou_3d_fix_yaw'):
     summary[key + '_mean'] = mean(matched, key)
-  for component in ('depth', 'dimensions', 'yaw'):
+  for component in ('depth', 'center_xy', 'dimensions', 'yaw'):
     fixed_key = 'iou_3d_fix_' + component
     gains = [r[fixed_key] - r['iou_3d'] for r in matched]
     summary['iou_3d_gain_fix_' + component] = (
@@ -177,14 +180,19 @@ def main():
         fixed_depth = dict(pred)
         fixed_depth['location'] = pred['location'].copy()
         fixed_depth['location'][2] = gt['location'][2]
+        fixed_center_xy = dict(pred)
+        fixed_center_xy['location'] = pred['location'].copy()
+        fixed_center_xy['location'][:2] = gt['location'][:2]
         fixed_dimensions = dict(pred)
         fixed_dimensions['dimensions'] = gt['dimensions'].copy()
         fixed_yaw = dict(pred)
         fixed_yaw['rotation_y'] = gt['rotation_y']
         _, iou_fix_depth = spatial_iou(gt, fixed_depth)
+        _, iou_fix_center_xy = spatial_iou(gt, fixed_center_xy)
         _, iou_fix_dimensions = spatial_iou(gt, fixed_dimensions)
         _, iou_fix_yaw = spatial_iou(gt, fixed_yaw)
         depth_error = float(pred['location'][2] - gt['location'][2])
+        location_xy_error = pred['location'][:2] - gt['location'][:2]
         dim_error = np.abs(pred['dimensions'] - gt['dimensions'])
         key = (image_id, gt['class'], tuple(round(float(v), 2) for v in gt['bbox']))
         stereo = sgbm_by_target.get(key)
@@ -194,6 +202,9 @@ def main():
             'depth_signed_error_m': depth_error,
             'depth_abs_error_m': abs(depth_error),
             'depth_relative_error': abs(depth_error) / max(gt['location'][2], 1e-6),
+            'location_x_abs_error_m': abs(float(location_xy_error[0])),
+            'location_y_abs_error_m': abs(float(location_xy_error[1])),
+            'location_xy_error_m': float(np.linalg.norm(location_xy_error)),
             'sgbm_depth_m': stereo.get('stereo_depth_m') if stereo else None,
             'sgbm_abs_error_m': stereo.get('absolute_error_m') if stereo else None,
             'effective_depth_correction_m': (
@@ -206,6 +217,7 @@ def main():
                 pred['rotation_y'], gt['rotation_y'])),
             'bev_iou': bev_iou, 'iou_3d': iou_3d,
             'iou_3d_fix_depth': iou_fix_depth,
+            'iou_3d_fix_center_xy': iou_fix_center_xy,
             'iou_3d_fix_dimensions': iou_fix_dimensions,
             'iou_3d_fix_yaw': iou_fix_yaw})
       records.append(record)
@@ -227,6 +239,8 @@ def main():
           matched, key=lambda x: x['depth_abs_error_m'], reverse=True)[:12]],
       'largest_yaw_errors': [r['image_id'] for r in sorted(
           matched, key=lambda x: x['yaw_error_deg'], reverse=True)[:12]],
+      'largest_center_xy_errors': [r['image_id'] for r in sorted(
+          matched, key=lambda x: x['location_xy_error_m'], reverse=True)[:12]],
       'lowest_3d_iou': [r['image_id'] for r in sorted(
           matched, key=lambda x: x['iou_3d'])[:12]],
   }

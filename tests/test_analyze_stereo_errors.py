@@ -14,3 +14,14 @@ def test_bbox_iou_and_distance_bucket():
   assert MODULE.distance_bucket(14.99) == '0-15m'
   assert MODULE.distance_bucket(15.0) == '15-30m'
   assert MODULE.distance_bucket(50.0) == '50m以上'
+
+
+def test_summarize_reports_center_xy_oracle_gain():
+  record = {
+      'matched': True, 'iou_3d': 0.4,
+      'iou_3d_fix_depth': 0.5, 'iou_3d_fix_center_xy': 0.7,
+      'iou_3d_fix_dimensions': 0.45, 'iou_3d_fix_yaw': 0.42,
+      'depth_abs_error_m': 1.0, 'location_xy_error_m': 0.3}
+  summary = MODULE.summarize([record])
+  assert abs(summary['iou_3d_gain_fix_center_xy'] - 0.3) < 1e-6
+  assert summary['location_xy_error_m_mean'] == 0.3

@@ -31,10 +31,20 @@ def configure_stereo_only_training(model):
       'stereo_quality_encoder.', 'stereo_coarse_fusion.', 'stereo_fusion.',
       'stereo_attention.', 'target_context.', 'depth_offset.',
       'depth_geometry_gate.', 'depth_log_variance.',
-      'depth_gate.')
+      'depth_gate.', 'proj_center_offset.')
   for name, parameter in model.named_parameters():
     parameter.requires_grad = name.startswith(prefixes)
   if hasattr(model, 'train_stereo_only'):
+    model.train_stereo_only = True
+  return [parameter for parameter in model.parameters() if parameter.requires_grad]
+
+
+def configure_projected_center_only_training(model):
+  """冻结v4全部已验证分支，只训练3D中心投影偏移头。"""
+  for name, parameter in model.named_parameters():
+    parameter.requires_grad = name.startswith('proj_center_offset.')
+  if hasattr(model, 'train_stereo_only'):
+    # 复用冻结模式，让骨干和BatchNorm保持eval。
     model.train_stereo_only = True
   return [parameter for parameter in model.parameters() if parameter.requires_grad]
 
@@ -64,6 +74,8 @@ def main(opt):
   if opt.load_model != '':
     model, optimizer, start_epoch = load_model(
       model, opt.load_model, optimizer, opt.resume, opt.lr, opt.lr_step)
+  if opt.train_stereo_only and opt.train_projected_center_only:
+    raise ValueError('两种冻结训练模式不能同时启用')
   if opt.train_stereo_only:
     if opt.resume:
       raise ValueError('train_stereo_only不能与resume同时使用')
@@ -72,6 +84,17 @@ def main(opt):
     trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
     total_count = sum(parameter.numel() for parameter in model.parameters())
     print('仅训练双目offset分支：{:,}/{:,}个参数'.format(
+        trainable_count, total_count))
+  if opt.train_projected_center_only:
+    if opt.resume:
+      raise ValueError('train_projected_center_only不能与resume同时使用')
+    if opt.load_model == '':
+      raise ValueError('只训练投影中心头时必须通过load_model加载已训练基线')
+    trainable_parameters = configure_projected_center_only_training(model)
+    optimizer = torch.optim.Adam(trainable_parameters, opt.lr)
+    trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
+    total_count = sum(parameter.numel() for parameter in model.parameters())
+    print('仅训练3D中心投影头：{:,}/{:,}个参数'.format(
         trainable_count, total_count))
 
   Trainer = train_factory[opt.task]

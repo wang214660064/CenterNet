@@ -88,13 +88,13 @@ z_final = sum(weight_i * z_i) / sum(weight_i)
 
 默认输出 `exp/stereo_stage2/sgbm_depth_metrics.json`。该评测使用真值二维框，作用是隔离检测误差、评估SGBM上限，不代表完整系统性能。
 
-### 2B：构建MonoFlex式训练目标
+### 2B：构建MonoFlex式训练目标，部分完成
 
 需要从 KITTI 标签生成并可视化：
 
 - 类别中心热图；
 - 2D框宽高；
-- 2D框中心到3D中心投影的偏移；
+- 2D框中心到3D中心投影的偏移（已实现，待正式训练评估）；
 - 3D尺寸残差；
 - MultiBin朝向；
 - 8个3D框顶点与顶面/底面中心，共10个关键点；

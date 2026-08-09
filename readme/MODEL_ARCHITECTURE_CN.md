@@ -1,4 +1,4 @@
-# Stereo Campus Gate v3 模型结构
+# Geometry Offset v4 + Projected Center v5 模型结构
 
 ## 1. 总体结构
 
@@ -11,6 +11,7 @@
 图像特征 [B,64,96,320]
     ├─ hm [3] / wh [2] / reg [2]
     ├─ direct dep [1] / dim [3] / rot [8]
+    ├─ proj_center_offset [2]
     │
     └───────────────────────────────────────────┐
                                                 │
@@ -60,7 +61,31 @@
 | `depth_offset` | 1 | SGBM表面到3D框中心的深度修正 | Masked Huber |
 | `depth_log_variance` | 1 | offset不确定性 | 校准损失 |
 | `depth_gate` | 1 | 两种深度的融合权重 | BCE + 融合深度Huber |
-模型总参数量为`22,677,314`。使用`--train_stereo_only`时只训练新增双目分支`2,061,991`个参数。
+| `proj_center_offset` | 2 | 2D框中心到3D几何中心投影点的偏移 | 距离加权Smooth L1 |
+
+模型总参数量为`22,825,540`。新投影中心头为`148,226`个参数。使用`--train_projected_center_only`时冻结v4全部已验证分支，只更新这个新头。
+
+### Projected Center v5
+
+KITTI的`location`表示3D框底面中心。生成监督时先向上移动半个目标高度，再通过当帧`P2`投影到左图：
+
+```text
+center_3d = [x, y - height / 2, z]
+projected_center = P2 × center_3d
+proj_center_offset = projected_center - bbox_center_2d
+```
+
+推理时分为两条路径：
+
+```text
+bbox_center_2d + wh                 -> 2D框
+bbox_center_2d + proj_center_offset -> 3D中心投影点
+3D中心投影点 + depth + P2 -> 相机坐标(x,y,z)
+```
+
+训练沿用园区距离权重：0～15m为2.0，15～30m为1.5，30～50m为0.5，50m以上不训练该3D偏移。
+
+对极端边缘车辆，真实3D中心可能远在画面外。当偏移超过64个输出特征格（原图256像素）时暂不参与该头监督，推理也做同样的向量限幅。该阈值在`project2000`中保留训练98.66%、验证98.52%的目标；剩余边缘目标需要后续Edge Fusion处理。
 
 ## 4. 门控监督与安全边界
 
@@ -109,6 +134,7 @@ depth_offset = quality × learned_geometry_gate × geometry_offset
 - 深度融合：`src/lib/models/networks/stereo_depth_offset.py`
 - 损失：`src/lib/trains/stereo_ddd.py`
 - 正式训练：`experiments/stereo_ddd_project2000.sh`
+- 投影中心A/B：`experiments/stereo_ddd_projected_center_v5.sh`
 - 结构打印：`src/tools/print_stereo_model.py`
 
 ```bash
@@ -117,8 +143,7 @@ depth_offset = quality × learned_geometry_gate × geometry_offset
 
 ## 6. 当前验证状态
 
-- 9个输出头前向成功，形状正确；
-- 20项项目测试通过；
-- 本地真实KITTI样本完成一次前向、总损失和反向传播；
-- 旧模型可加载DLA和常规检测头，新增模块重新初始化；
-- 尚未完成Geometry Offset v4正式训练，因此暂时不能宣称3D AP得到提升。
+- 26项项目测试通过，10个输出头前向成功，`proj_center_offset`形状为`[B,2,96,320]`；
+- 新头最后一层零初始化，旧v4权重保持原始中心行为；
+- 本地真实KITTI样本完成标签生成、前向、总损失和反向传播；
+- Geometry Offset v4已完成正式评估；Projected Center v5尚未训练，不预先宣称AP提升。

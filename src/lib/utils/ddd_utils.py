@@ -33,6 +33,20 @@ def project_to_image(pts_3d, P):
   # import pdb; pdb.set_trace()
   return pts_2d
 
+
+def project_3d_center_to_image(location, dimensions, calib):
+  """KITT底面中心坐标转为3D框几何中心的像素投影。"""
+  center_3d = np.asarray(location, dtype=np.float32).copy()
+  dimensions = np.asarray(dimensions, dtype=np.float32)
+  if center_3d.shape != (3,) or dimensions.shape != (3,):
+    raise ValueError('location和dimensions必须都是3个数值')
+  # KITTI location是3D框底面中心，几何中心需要向上移动半个高度。
+  center_3d[1] -= dimensions[0] / 2.0
+  projected = project_to_image(center_3d.reshape(1, 3), calib)[0]
+  if not np.all(np.isfinite(projected)):
+    raise ValueError('3D中心无法投影到图像')
+  return projected.astype(np.float32)
+
 def compute_orientation_3d(dim, location, rotation_y):
   # dim: 3
   # location: 3

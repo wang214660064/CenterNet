@@ -18,6 +18,7 @@ class StereoDddLoss(DddLoss):
     offset_loss = 0
     gate_loss = 0
     fusion_depth_loss = 0
+    proj_center_loss = 0
     geometry_offset_mean = 0
     residual_offset_mean = 0
     for output in outputs:
@@ -53,6 +54,18 @@ class StereoDddLoss(DddLoss):
           beyond_weight=self.opt.campus_beyond_weight)
       weighted_mask = mask * distance_weight
       valid_count = torch.clamp(weighted_mask.sum(), min=1.0)
+      predicted_proj_center = _transpose_and_gather_feat(
+          output['proj_center_offset'], batch['ind'])
+      proj_center_mask = batch['proj_center_mask'].unsqueeze(2).to(
+          dtype=predicted_proj_center.dtype)
+      proj_center_weight = proj_center_mask * distance_weight
+      proj_center_error = F.smooth_l1_loss(
+          predicted_proj_center, batch['proj_center_offset'],
+          reduction='none', beta=1.0)
+      proj_center_loss += (
+          (proj_center_error * proj_center_weight).sum() /
+          torch.clamp(proj_center_weight.sum() * 2.0, min=1.0) /
+          len(outputs))
       if self.opt.depth_offset_loss == 'huber':
         offset_loss += stereo_huber_uncertainty_loss(
             predicted_offset, predicted_log_variance, target, weighted_mask,
@@ -131,11 +144,13 @@ class StereoDddLoss(DddLoss):
           torch.clamp(fusion_weight.sum(), min=1.0) / len(outputs))
     loss = (base_loss + self.opt.depth_offset_weight * offset_loss +
             self.opt.depth_gate_weight * gate_loss +
-            self.opt.depth_fusion_weight * fusion_depth_loss)
+            self.opt.depth_fusion_weight * fusion_depth_loss +
+            self.opt.proj_center_weight * proj_center_loss)
     stats['loss'] = loss
     stats['depth_offset_loss'] = offset_loss
     stats['depth_gate_loss'] = gate_loss
     stats['depth_fusion_loss'] = fusion_depth_loss
+    stats['proj_center_loss'] = proj_center_loss
     stats['geometry_offset_mean'] = geometry_offset_mean.detach()
     stats['residual_offset_mean'] = residual_offset_mean.detach()
     return loss, stats
@@ -146,5 +161,6 @@ class StereoDddTrainer(DddTrainer):
     loss_states = [
         'loss', 'hm_loss', 'dep_loss', 'dim_loss', 'rot_loss',
         'wh_loss', 'off_loss', 'depth_offset_loss', 'depth_gate_loss',
-        'depth_fusion_loss', 'geometry_offset_mean', 'residual_offset_mean']
+        'depth_fusion_loss', 'proj_center_loss', 'geometry_offset_mean',
+        'residual_offset_mean']
     return loss_states, StereoDddLoss(opt)

@@ -36,6 +36,13 @@ class StereoDLASeg(DLASeg):
     super(StereoDLASeg, self).__init__(
         base_name, regular_heads, pretrained, down_ratio, final_kernel,
         last_level, head_conv, out_channel)
+    # 旧v4权重不包含此头；零初始化使旧权重推理时仍使用原二维中心。
+    if hasattr(self, 'proj_center_offset'):
+      conv_layers = [module for module in self.proj_center_offset.modules()
+                     if isinstance(module, nn.Conv2d)]
+      nn.init.zeros_(conv_layers[-1].weight)
+      if conv_layers[-1].bias is not None:
+        nn.init.zeros_(conv_layers[-1].bias)
     feature_channels = self.base.channels[self.first_level]
     # SGBM质量编码器输入：深度、有效比例、局部离散度、深度梯度。
     self.stereo_quality_encoder = nn.Sequential(
@@ -92,7 +99,7 @@ class StereoDLASeg(DLASeg):
           'stereo_quality_encoder', 'stereo_coarse_fusion', 'stereo_fusion',
           'stereo_attention', 'target_context', 'depth_offset',
           'depth_geometry_gate', 'depth_log_variance',
-          'depth_gate'}
+          'depth_gate', 'proj_center_offset'}
       for name, module in self.named_children():
         if name not in trainable:
           module.eval()

@@ -68,7 +68,10 @@ class DddDetector(BaseDetector):
       forward_time = time.time()
       
       dets = ddd_decode(output['hm'], output['rot'], output['dep'],
-                          output['dim'], wh=wh, reg=reg, K=self.opt.K)
+                          output['dim'], wh=wh, reg=reg,
+                          proj_center_offset=output.get('proj_center_offset'),
+                          proj_center_max_offset=self.opt.proj_center_max_offset,
+                          K=self.opt.K)
     if return_time:
       return output, dets, forward_time
     else:

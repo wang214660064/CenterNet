@@ -17,6 +17,8 @@
 - [X] 完成园区Gate v3：0～30m重点训练、30～50m远距预警、50m以上仅保留2D用途；gate采用代价加权Focal监督；
 - [X] 完成Geometry Offset v4：尺寸/朝向几何先验、SGBM质量门控与学习残差；
 - [X] 完成Geometry Offset v4的400帧正式评估：Car Moderate 3D AP_R40为30.36，优于v3的28.92；
+- [X] 完成3D中心投影改造：保留2D框中心，新增独立`proj_center_offset`头；
+- [ ] 待完成Projected Center v5训练及400帧AP/误差分解；
 - [X] 完成3D属性头小学习率解冻消融：Car Moderate 3D AP_R40降至29.44，继续以冻结3D头的Geometry Offset v4作为最佳基线；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
@@ -75,6 +77,8 @@ GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IM
 
 Geometry Offset v4将SGBM可见表面深度修正拆成“尺寸/朝向几何先验 + 学习残差”。几何先验乘以SGBM局部质量和可学习门控。尺寸头与朝向头使用`detach()`单向供给，不会被offset损失带偏。
 
+Projected Center v5不替换现有2D中心热力图，而是预测“2D框中心到3D几何中心投影点”的偏移。恢复相机坐标和`rotation_y`时使用修正后的投影中心，2D框继续使用原中心，两条路径不混用。旧v4权重加载后新头默认输出0，保持向后兼容。
+
 3D属性头小学习率解冻消融已经完成：平均深度、尺寸和朝向误差略有下降，但Car Moderate BEV/3D AP_R40分别由43.44/30.36降至42.32/29.44。项目主线已回退到冻结常规头的Geometry Offset v4，解冻入口不再保留。
 
 本项目正式使用固定的 `project2000` 数据集，其中1600帧用于训练、400帧用于验证：
@@ -82,6 +86,12 @@ Geometry Offset v4将SGBM可见表面深度修正拆成“尺寸/朝向几何先
 ```bash
 python src/tools/create_kitti_project_split.py
 bash experiments/stereo_ddd_project2000.sh
+```
+
+从v4最佳权重开始单独训练3D中心投影头：
+
+```bash
+bash experiments/stereo_ddd_projected_center_v5.sh
 ```
 
 后续训练、验证、AP和距离分桶均以 `project2000` 为准，原3DOP划分仅作为历史资料保留，不再作为项目默认评测口径。
@@ -106,7 +116,7 @@ bash experiments/stereo_ddd_project2000.sh
 conda run -n clip python src/tools/analyze_stereo_errors.py
 ```
 
-输出 `error_analysis.json`（汇总指标）和 `error_analysis_records.csv`（逐目标明细）。诊断采用2D IoU匹配，并分别统计最终深度、SGBM深度、尺寸、朝向、BEV IoU和3D IoU；反事实指标会单独将深度、尺寸或朝向替换成真值，用于估计各分支对3D IoU的影响。
+输出 `error_analysis.json`（汇总指标）和 `error_analysis_records.csv`（逐目标明细）。诊断采用2D IoU匹配，并分别统计最终深度、相机坐标`x/y`、SGBM深度、尺寸、朝向、BEV IoU和3D IoU；反事实指标会单独将深度、`x/y`中心、尺寸或朝向替换成真值，用于估计各分支对3D IoU的影响。
 
 ## 数据学习工具
 

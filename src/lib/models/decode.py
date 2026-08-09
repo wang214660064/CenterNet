@@ -423,7 +423,8 @@ def exct_decode(
 
     return detections
 
-def ddd_decode(heat, rot, depth, dim, wh=None, reg=None, K=40):
+def ddd_decode(heat, rot, depth, dim, wh=None, reg=None,
+               proj_center_offset=None, proj_center_max_offset=None, K=40):
     batch, cat, height, width = heat.size()
     # heat = torch.sigmoid(heat)
     # perform nms on heatmaps
@@ -449,15 +450,31 @@ def ddd_decode(heat, rot, depth, dim, wh=None, reg=None, K=40):
     scores = scores.view(batch, K, 1)
     xs = xs.view(batch, K, 1)
     ys = ys.view(batch, K, 1)
+    bbox_xs, bbox_ys = xs, ys
+    if proj_center_offset is not None:
+      proj_center_offset = _transpose_and_gather_feat(
+          proj_center_offset, inds).view(batch, K, 2)
+      if proj_center_max_offset is not None:
+        offset_norm = torch.sqrt(torch.sum(
+            proj_center_offset * proj_center_offset,
+            dim=2, keepdim=True)).clamp(min=1e-6)
+        offset_scale = torch.clamp(
+            proj_center_max_offset / offset_norm, max=1.0)
+        proj_center_offset = proj_center_offset * offset_scale
+      xs = xs + proj_center_offset[:, :, 0:1]
+      ys = ys + proj_center_offset[:, :, 1:2]
       
     if wh is not None:
         wh = _transpose_and_gather_feat(wh, inds)
         wh = wh.view(batch, K, 2)
-        detections = torch.cat(
-            [xs, ys, scores, rot, depth, dim, wh, clses], dim=2)
+        values = [xs, ys, scores, rot, depth, dim, wh]
     else:
-        detections = torch.cat(
-            [xs, ys, scores, rot, depth, dim, clses], dim=2)
+        values = [xs, ys, scores, rot, depth, dim]
+    if proj_center_offset is not None:
+      # 保留原二维中心，避免3D投影中心修正后带偏2D框。
+      values.extend([bbox_xs, bbox_ys])
+    values.append(clses)
+    detections = torch.cat(values, dim=2)
       
     return detections
 

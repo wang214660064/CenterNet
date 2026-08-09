@@ -13,6 +13,7 @@ import math
 from utils.image import flip, color_aug
 from utils.image import get_affine_transform, affine_transform
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
+from utils.ddd_utils import project_3d_center_to_image
 import pycocotools.coco as coco
 
 class DddDataset(data.Dataset):
@@ -76,6 +77,8 @@ class DddDataset(data.Dataset):
     ind = np.zeros((self.max_objs), dtype=np.int64)
     reg_mask = np.zeros((self.max_objs), dtype=np.uint8)
     rot_mask = np.zeros((self.max_objs), dtype=np.uint8)
+    proj_center_offset = np.zeros((self.max_objs, 2), dtype=np.float32)
+    proj_center_mask = np.zeros((self.max_objs), dtype=np.uint8)
 
     ann_ids = self.coco.getAnnIds(imgIds=[img_id])
     anns = self.coco.loadAnns(ids=ann_ids)
@@ -115,12 +118,37 @@ class DddDataset(data.Dataset):
           continue
         draw_gaussian(hm[cls_id], ct, radius)
 
+        projected_center = ct.copy()
+        if self.opt.task == 'stereo_ddd' and \
+            'location' in ann and 'dim' in ann:
+          try:
+            projected_center_image = project_3d_center_to_image(
+                ann['location'], ann['dim'], calib)
+            projected_center = affine_transform(
+                projected_center_image, trans_output)
+            if np.all(np.isfinite(projected_center)):
+              proj_center_offset[k] = projected_center - ct
+              offset_norm = np.linalg.norm(proj_center_offset[k])
+              # 极端边缘目标的几何中心可能远在画外，需要Edge Fusion单独处理。
+              within_limit = offset_norm <= self.opt.proj_center_max_offset
+              proj_center_mask[k] = 1 if not aug and within_limit else 0
+            else:
+              projected_center = ct.copy()
+          except ValueError:
+            projected_center = ct.copy()
+
         wh[k] = 1. * w, 1. * h
-        gt_det.append([ct[0], ct[1], 1] + \
-                      self._alpha_to_8(self._convert_alpha(ann['alpha'])) + \
-                      [ann['depth']] + (np.array(ann['dim']) / 1).tolist() + [cls_id])
+        gt_center = projected_center if self.opt.task == 'stereo_ddd' else ct
+        gt_entry = [gt_center[0], gt_center[1], 1] + \
+                   self._alpha_to_8(self._convert_alpha(ann['alpha'])) + \
+                   [ann['depth']] + (np.array(ann['dim']) / 1).tolist()
         if self.opt.reg_bbox:
-          gt_det[-1] = gt_det[-1][:-1] + [w, h] + [gt_det[-1][-1]]
+          gt_entry += [w, h]
+        if self.opt.task == 'stereo_ddd':
+          # 3D恢复使用投影中心，2D框继续使用原二维中心。
+          gt_entry += [ct[0], ct[1]]
+        gt_entry += [cls_id]
+        gt_det.append(gt_entry)
         # if (not self.opt.car_only) or cls_id == 1: # Only estimate ADD for cars !!!
         if 1:
           alpha = self._convert_alpha(ann['alpha'])
@@ -149,9 +177,13 @@ class DddDataset(data.Dataset):
       ret.update({'reg': reg})
     if self.opt.task == 'stereo_ddd':
       ret['stereo_trans_output'] = trans_output.astype(np.float32)
+      ret['proj_center_offset'] = proj_center_offset
+      ret['proj_center_mask'] = proj_center_mask
     if self.opt.debug > 0 or not ('train' in self.split):
+      empty_det_size = 16 + (2 if self.opt.reg_bbox else 0) + \
+                       (2 if self.opt.task == 'stereo_ddd' else 0)
       gt_det = np.array(gt_det, dtype=np.float32) if len(gt_det) > 0 else \
-               np.zeros((1, 18), dtype=np.float32)
+               np.zeros((1, empty_det_size), dtype=np.float32)
       meta = {'c': c, 's': s, 'gt_det': gt_det, 'calib': calib,
               'image_path': img_path, 'img_id': img_id}
       ret['meta'] = meta

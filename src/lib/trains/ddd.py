@@ -78,7 +78,10 @@ class DddTrainer(BaseTrainer):
       wh = output['wh'] if opt.reg_bbox else None
       reg = output['reg'] if opt.reg_offset else None
       dets = ddd_decode(output['hm'], output['rot'], output['dep'],
-                          output['dim'], wh=wh, reg=reg, K=opt.K)
+                          output['dim'], wh=wh, reg=reg,
+                          proj_center_offset=output.get('proj_center_offset'),
+                          proj_center_max_offset=opt.proj_center_max_offset,
+                          K=opt.K)
 
       # x, y, score, r1-r8, depth, dim1-dim3, cls
       dets = dets.detach().cpu().numpy().reshape(1, -1, dets.shape[2])
@@ -105,11 +108,16 @@ class DddTrainer(BaseTrainer):
         debugger.add_blend_img(img, pred, 'hm_pred')
         debugger.add_blend_img(img, gt, 'hm_gt')
         # decode
+        dets_2d = dets[i].copy()
+        gt_dets_2d = batch['meta']['gt_det'][i].cpu().numpy().copy()
+        if 'proj_center_offset' in output and opt.reg_bbox:
+          dets_2d[:, :2] = dets_2d[:, 17:19]
+          gt_dets_2d[:, :2] = gt_dets_2d[:, 17:19]
         debugger.add_ct_detection(
-          img, dets[i], show_box=opt.reg_bbox, center_thresh=opt.center_thresh, 
+          img, dets_2d, show_box=opt.reg_bbox, center_thresh=opt.center_thresh,
           img_id='det_pred')
         debugger.add_ct_detection(
-          img, batch['meta']['gt_det'][i].cpu().numpy().copy(), 
+          img, gt_dets_2d,
           show_box=opt.reg_bbox, img_id='det_gt')
         debugger.add_3d_detection(
           batch['meta']['image_path'][i], dets_pred[i], calib[i],
@@ -139,7 +147,10 @@ class DddTrainer(BaseTrainer):
     wh = output['wh'] if opt.reg_bbox else None
     reg = output['reg'] if opt.reg_offset else None
     dets = ddd_decode(output['hm'], output['rot'], output['dep'],
-                        output['dim'], wh=wh, reg=reg, K=opt.K)
+                        output['dim'], wh=wh, reg=reg,
+                        proj_center_offset=output.get('proj_center_offset'),
+                        proj_center_max_offset=opt.proj_center_max_offset,
+                        K=opt.K)
 
     # x, y, score, r1-r8, depth, dim1-dim3, cls
     dets = dets.detach().cpu().numpy().reshape(1, -1, dets.shape[2])

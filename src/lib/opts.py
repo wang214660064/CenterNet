@@ -197,6 +197,10 @@ class opts(object):
                              help='可学习SGBM门控分类损失权重')
     self.parser.add_argument('--depth_fusion_weight', type=float, default=0.5,
                              help='融合后深度Huber损失权重')
+    self.parser.add_argument('--proj_center_weight', type=float, default=1.0,
+                             help='3D中心投影偏移Smooth L1损失权重')
+    self.parser.add_argument('--proj_center_max_offset', type=float, default=64.0,
+                             help='投影中心最大偏移，单位为输出特征格')
     self.parser.add_argument('--depth_gate_focal_gamma', type=float, default=2.0,
                              help='门控Focal Loss的gamma')
     self.parser.add_argument('--depth_gate_focal_alpha', type=float, default=0.5,
@@ -246,11 +250,13 @@ class opts(object):
                              help='近距离允许的最小offset上限，单位m')
     self.parser.add_argument('--train_stereo_only', action='store_true',
                              help='冻结骨干和常规检测头，只训练双目offset分支')
+    self.parser.add_argument('--train_projected_center_only', action='store_true',
+                             help='只训练3D中心投影偏移头，用于单变量A/B')
     
     # task
     # ctdet
     self.parser.add_argument('--norm_wh', action='store_true',
-                             help='L1(\hat(y) / y, 1) or L1(\hat(y), y)')
+                             help='L1(pred / target, 1) or L1(pred, target)')
     self.parser.add_argument('--dense_wh', action='store_true',
                              help='apply weighted regression near center or '
                                   'just apply regression on center point.')
@@ -386,7 +392,8 @@ class opts(object):
         opt.heads.update({'reg': 2})
       if opt.task == 'stereo_ddd':
         opt.heads.update({
-            'depth_offset': 1, 'depth_log_variance': 1, 'depth_gate': 1})
+            'depth_offset': 1, 'depth_log_variance': 1, 'depth_gate': 1,
+            'proj_center_offset': 2})
     elif opt.task == 'ctdet':
       # assert opt.dataset in ['pascal', 'coco']
       opt.heads = {'hm': opt.num_classes,
