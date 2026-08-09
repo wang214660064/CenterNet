@@ -17,6 +17,7 @@
 - [X] 完成园区Gate v3：0～30m重点训练、30～50m远距预警、50m以上仅保留2D用途；gate采用代价加权Focal监督；
 - [X] 完成Geometry Offset v4：尺寸/朝向几何先验、SGBM质量门控与学习残差；
 - [X] 完成Geometry Offset v4的400帧正式评估：Car Moderate 3D AP_R40为30.36，优于v3的28.92；
+- [X] 完成3D属性头小学习率解冻消融：Car Moderate 3D AP_R40降至29.44，继续以冻结3D头的Geometry Offset v4作为最佳基线；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
 - [x] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40（最佳权重第10轮，Car Moderate 3D AP_R40 30.88）。
@@ -74,11 +75,7 @@ GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IM
 
 Geometry Offset v4将SGBM可见表面深度修正拆成“尺寸/朝向几何先验 + 学习残差”。几何先验乘以SGBM局部质量和可学习门控。尺寸头与朝向头使用`detach()`单向供给，不会被offset损失带偏。
 
-Geometry Offset v4验证通过后，下一阶段只小学习率解冻`dep/dim/rot`，继续冻结DLA骨干与`hm/wh/reg`二维头。双目分支使用`2e-6`，3D属性头使用`5e-7`，避免1600帧训练集破坏已稳定的二维检测能力：
-
-```bash
-bash experiments/stereo_ddd_project2000_3d_heads.sh
-```
+3D属性头小学习率解冻消融已经完成：平均深度、尺寸和朝向误差略有下降，但Car Moderate BEV/3D AP_R40分别由43.44/30.36降至42.32/29.44。项目主线已回退到冻结常规头的Geometry Offset v4，解冻入口不再保留。
 
 本项目正式使用固定的 `project2000` 数据集，其中1600帧用于训练、400帧用于验证：
 

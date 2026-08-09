@@ -1,15 +1,15 @@
 # 项目记录
 
-## 2026-08-09：增加3D属性头小学习率解冻阶段
+## 2026-08-09：3D属性头解冻阶段正式评估
 
-- 新增`--train_stereo_3d_heads`，与`--train_stereo_only`互斥；
-- 冻结DLA骨干与`hm/wh/reg`二维头，只训练双目分支及`dep/dim/rot`；
-- 优化器使用两组学习率：双目分支`2e-6`，3D属性头`5e-7`，学习率衰减时保持4:1比例；
-- 新实验从Geometry Offset v4第7轮最佳权重初始化，最多训练15轮，每轮验证，连续4轮未改善至少0.003时早停；
-- 新增`experiments/stereo_ddd_project2000_3d_heads.sh`，不使用`resume`，避免继承旧优化器状态；
-- 真实模型检查确认双目分支训练2,061,991个参数，3D属性头训练446,220个参数，共2,508,211个；骨干和二维头保持eval状态。
-
-验证：21项测试通过；Python语法、Shell脚本和`git diff --check`通过。尚未启动服务器训练。
+- 服务器实际使用`batch_size=16`，训练在第6轮早停，最佳权重为第2轮，最低验证损失3.3911；
+- 在`project2000`的400帧验证集完成推理、KITTI AP_R40和误差分解；
+- Car Moderate BEV/3D AP_R40为42.32/29.44，低于冻结3D头的Geometry Offset v4的43.44/30.36；
+- 最终深度MAE由0.847m小幅降至0.844m，尺寸MAE由0.160m降至0.158m，朝向误差由21.58°降至21.50°，但平均3D IoU由0.4915微降至0.4909；
+- 0～15m、15～30m、30～50m深度MAE分别为0.437m、0.750m、1.214m，与v4基本相同；
+- 2D AP保持不变，说明冻结骨干和二维头生效；AOS只有极小变化；
+- 结论：平均回归误差的微小改善没有转化为IoU阈值下的AP提升，当前不采用解冻权重，继续使用`stereo_project2000_geometry_offset_v4/model_best.pth`。
+- 评估结果位于服务器`exp/stereo_ddd/stereo_project2000_geometry_offset_3d_heads_v5_eval`。
 
 ## 2026-08-09：Geometry Offset v4正式评估
 

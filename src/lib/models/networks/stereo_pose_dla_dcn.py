@@ -83,7 +83,6 @@ class StereoDLASeg(DLASeg):
     self.heads.update({
         'depth_offset': 1, 'depth_log_variance': 1, 'depth_gate': 1})
     self.train_stereo_only = False
-    self.train_stereo_3d_heads = False
 
   def train(self, mode=True):
     super(StereoDLASeg, self).train(mode)
@@ -94,8 +93,6 @@ class StereoDLASeg(DLASeg):
           'stereo_attention', 'target_context', 'depth_offset',
           'depth_geometry_gate', 'depth_log_variance',
           'depth_gate'}
-      if self.train_stereo_3d_heads:
-        trainable.update({'dep', 'dim', 'rot'})
       for name, module in self.named_children():
         if name not in trainable:
           module.eval()

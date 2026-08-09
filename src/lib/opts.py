@@ -246,10 +246,6 @@ class opts(object):
                              help='近距离允许的最小offset上限，单位m')
     self.parser.add_argument('--train_stereo_only', action='store_true',
                              help='冻结骨干和常规检测头，只训练双目offset分支')
-    self.parser.add_argument('--train_stereo_3d_heads', action='store_true',
-                             help='冻结骨干和2D头，训练双目分支及dep/dim/rot')
-    self.parser.add_argument('--ddd_head_lr', type=float, default=5e-7,
-                             help='解冻dep/dim/rot时使用的小学习率')
     
     # task
     # ctdet
