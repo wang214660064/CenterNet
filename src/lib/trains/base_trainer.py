@@ -103,6 +103,14 @@ class BaseTrainer(object):
               avg_loss_stats.get('depth_offset_loss', AverageMeter()).avg),
           'gate': '{:.3f}'.format(
               avg_loss_stats.get('depth_gate_loss', AverageMeter()).avg),
+          'q': '{:.3f}'.format(
+              avg_loss_stats.get('depth_quality_loss', AverageMeter()).avg),
+          'conf': '{:.2f}'.format(
+              avg_loss_stats.get('stereo_confidence_mean', AverageMeter()).avg),
+          'geo': '{:.2f}m'.format(
+              avg_loss_stats.get('geometry_offset_mean', AverageMeter()).avg),
+          'res': '{:.2f}m'.format(
+              avg_loss_stats.get('residual_offset_mean', AverageMeter()).avg),
           'objs': instances,
           'size': '{}x{}'.format(batch['input'].shape[-2], batch['input'].shape[-1]),
       }

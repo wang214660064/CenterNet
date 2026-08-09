@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from .ddd import DddDataset
+from lib.utils.stereo_depth import disparity_to_depth, local_valid_quality
 
 
 class StereoDddDataset(DddDataset):
@@ -65,7 +66,11 @@ class StereoDddDataset(DddDataset):
       values = values[np.abs(values - median) <= 3.0 * mad]
     if values.size == 0:
       return None
-    return float(np.median(values)), float(values.size) / max(1, roi.size)
+    median = float(np.median(values))
+    mad = float(np.median(np.abs(values - median)))
+    q1, q3 = np.percentile(values, [25, 75])
+    return (median, float(values.size) / max(1, roi.size),
+            mad, float(q3 - q1))
 
   def __getitem__(self, index):
     ret = super(StereoDddDataset, self).__getitem__(index)
@@ -81,23 +86,12 @@ class StereoDddDataset(DddDataset):
 
     p2 = np.asarray(image_info['calib'], dtype=np.float32)
     p3 = self._read_p3(image_id)
-    fx, baseline, principal_offset = self._stereo_params(p2, p3)
     disparity = self._sgbm(left, right)
-    effective = disparity - principal_offset
-    depth = np.full(disparity.shape, np.nan, dtype=np.float32)
-    valid = effective > 0.5
-    depth[valid] = fx * baseline / effective[valid]
-    depth[(depth <= 0) | (depth > self.opt.stereo_max_depth)] = np.nan
+    quality_map = local_valid_quality(
+        disparity, self.opt.stereo_quality_window)
+    depth = disparity_to_depth(disparity, p2, p3, self.opt.stereo_max_depth)
 
     safe_depth = np.where(np.isfinite(depth), depth, 0).astype(np.float32)
-    valid_map = np.isfinite(depth).astype(np.float32)
-    window = int(self.opt.stereo_quality_window)
-    if window <= 0 or window % 2 == 0:
-      raise ValueError('stereo_quality_window必须是正奇数')
-    # 局部有效比例只由双目图像产生，不能使用真值框修改模型输入。
-    quality_map = cv2.boxFilter(
-        valid_map, ddepth=-1, ksize=(window, window), normalize=True,
-        borderType=cv2.BORDER_REPLICATE)
     output_size = (self.opt.output_w, self.opt.output_h)
     ret['sgbm_depth'] = cv2.warpAffine(
         safe_depth, transform, output_size, flags=cv2.INTER_LINEAR)[None]
@@ -106,6 +100,7 @@ class StereoDddDataset(DddDataset):
 
     offset_target = np.zeros((self.max_objs, 1), dtype=np.float32)
     offset_mask = np.zeros((self.max_objs), dtype=np.uint8)
+    quality_target = np.zeros((self.max_objs, 1), dtype=np.float32)
     ann_ids = self.coco.getAnnIds(imgIds=[image_id])
     anns = self.coco.loadAnns(ids=ann_ids)
     for k, ann in enumerate(anns[:self.max_objs]):
@@ -115,7 +110,7 @@ class StereoDddDataset(DddDataset):
       measured = self._measure_box_depth(depth, self._coco_box_to_bbox(ann['bbox']))
       if measured is None:
         continue
-      sgbm_depth, _ = measured
+      sgbm_depth, _, _, _ = measured
       raw_offset = float(ann['depth']) - sgbm_depth
       # 监督目标与推理阶段使用相同限幅，避免学习推理时不会采用的大修正。
       offset_limit = max(
@@ -124,7 +119,20 @@ class StereoDddDataset(DddDataset):
               sgbm_depth * self.opt.depth_offset_max_ratio))
       offset_target[k, 0] = np.clip(raw_offset, -offset_limit, offset_limit)
       offset_mask[k] = 1
+      dimensions = ann['dim']  # KITTI顺序为[h, w, l]。
+      rotation_y = float(ann['rotation_y'])
+      surface_extent = 0.5 * (
+          float(dimensions[2]) * abs(np.cos(rotation_y)) +
+          float(dimensions[1]) * abs(np.sin(rotation_y)))
+      expected_surface_depth = float(ann['depth']) - surface_extent
+      surface_error = abs(sgbm_depth - expected_surface_depth)
+      tolerance = max(
+          self.opt.stereo_quality_abs_tolerance,
+          float(ann['depth']) * self.opt.stereo_quality_rel_tolerance)
+      # 真值只生成训练软标签；推理阶段质量头只读取图像与SGBM特征。
+      quality_target[k, 0] = np.exp(-surface_error / tolerance)
 
     ret['depth_offset'] = offset_target
     ret['depth_offset_mask'] = offset_mask
+    ret['stereo_quality_target'] = quality_target
     return ret

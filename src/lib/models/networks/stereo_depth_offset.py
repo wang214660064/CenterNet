@@ -53,6 +53,58 @@ class StereoDepthOffsetHead(nn.Module):
     }
 
 
+def decode_alpha_from_rot(rotation):
+  """将CenterNet的8通道旋转编码还原为观察角alpha。"""
+  if rotation.shape[1] != 8:
+    raise ValueError('rotation必须包含8个通道')
+  alpha1 = torch.atan2(rotation[:, 2:3], rotation[:, 3:4]) - 0.5 * math.pi
+  alpha2 = torch.atan2(rotation[:, 6:7], rotation[:, 7:8]) + 0.5 * math.pi
+  use_first_bin = rotation[:, 1:2] > rotation[:, 5:6]
+  return torch.where(use_first_bin, alpha1, alpha2)
+
+
+def geometric_surface_offset(dimensions, rotation):
+  """根据3D尺寸和观察角估计可见表面到物体中心的几何距离。"""
+  if dimensions.shape[1] != 3:
+    raise ValueError('dimensions必须按[h, w, l]提供3个通道')
+  # 单向耦合：offset损失不能反向修改尺寸头和朝向头。
+  dimensions = dimensions.detach()
+  rotation = rotation.detach()
+  width = torch.clamp(torch.abs(dimensions[:, 1:2]), min=0.1, max=10.0)
+  length = torch.clamp(torch.abs(dimensions[:, 2:3]), min=0.1, max=20.0)
+  alpha = decode_alpha_from_rot(rotation)
+  return 0.5 * (
+      length * torch.abs(torch.cos(alpha)) +
+      width * torch.abs(torch.sin(alpha)))
+
+
+def object_level_stereo_pool(depth, quality, scale_weights,
+                             kernels=(3, 7, 15)):
+  """按预测目标尺度聚合SGBM，避免只读取目标中心的单个像素。"""
+  if scale_weights.shape[1] != len(kernels):
+    raise ValueError('scale_weights通道数必须与聚合尺度数量一致')
+  valid = torch.isfinite(depth) & (depth > 0)
+  safe_depth = torch.where(valid, depth, torch.zeros_like(depth))
+  safe_quality = torch.where(valid, quality, torch.zeros_like(quality))
+  safe_quality = torch.clamp(safe_quality, 0, 1)
+  pooled_depths, pooled_qualities = [], []
+  for kernel in kernels:
+    denominator = F.avg_pool2d(
+        safe_quality, kernel, stride=1, padding=kernel // 2)
+    numerator = F.avg_pool2d(
+        safe_depth * safe_quality, kernel, stride=1, padding=kernel // 2)
+    pooled_depths.append(numerator / torch.clamp(denominator, min=1e-4))
+    pooled_qualities.append(denominator)
+  depth_stack = torch.stack(pooled_depths, dim=1)
+  quality_stack = torch.stack(pooled_qualities, dim=1)
+  weights = scale_weights.unsqueeze(2)
+  object_depth = (depth_stack * weights).sum(dim=1)
+  object_quality = (quality_stack * weights).sum(dim=1)
+  object_depth = torch.where(
+      object_quality > 1e-4, object_depth, torch.zeros_like(object_depth))
+  return object_depth, torch.clamp(object_quality, 0, 1)
+
+
 def stereo_offset_loss(predicted_offset, predicted_log_variance,
                        target_offset, valid_mask):
   """带有效掩码的Laplace不确定性损失。"""

@@ -8,6 +8,8 @@ from torch import nn
 from torch.nn import functional as F
 
 from .pose_dla_dcn import DLASeg, fill_fc_weights
+from .stereo_depth_offset import (
+    geometric_surface_offset, object_level_stereo_pool)
 
 
 class ECAAttention(nn.Module):
@@ -29,7 +31,8 @@ class ECAAttention(nn.Module):
 class StereoDLASeg(DLASeg):
   def __init__(self, base_name, heads, pretrained, down_ratio, final_kernel,
                last_level, head_conv, out_channel=0):
-    stereo_heads = ('depth_offset', 'depth_log_variance', 'depth_gate')
+    stereo_heads = (
+        'depth_offset', 'depth_log_variance', 'depth_gate', 'depth_quality')
     regular_heads = {name: channels for name, channels in heads.items()
                      if name not in stereo_heads}
     super(StereoDLASeg, self).__init__(
@@ -62,6 +65,9 @@ class StereoDLASeg(DLASeg):
         nn.Conv2d(head_conv, head_conv, kernel_size=3, padding=1),
         nn.ReLU(inplace=True))
     self.depth_offset = nn.Conv2d(head_conv, 1, kernel_size=1)
+    # 学习几何先验的可信程度，避免把“车长一半”强行用于遮挡或错误视差。
+    self.depth_geometry_gate = nn.Conv2d(head_conv, 1, kernel_size=1)
+    self.depth_quality = nn.Conv2d(head_conv, 1, kernel_size=1)
     self.depth_log_variance = nn.Conv2d(head_conv, 1, kernel_size=1)
     self.depth_gate = nn.Conv2d(head_conv, 1, kernel_size=1)
     fill_fc_weights(self.stereo_quality_encoder)
@@ -70,13 +76,18 @@ class StereoDLASeg(DLASeg):
     fill_fc_weights(self.target_context)
     nn.init.zeros_(self.depth_offset.weight)
     nn.init.zeros_(self.depth_offset.bias)
+    nn.init.zeros_(self.depth_geometry_gate.weight)
+    nn.init.zeros_(self.depth_geometry_gate.bias)
+    nn.init.zeros_(self.depth_quality.weight)
+    nn.init.constant_(self.depth_quality.bias, 2.0)
     nn.init.zeros_(self.depth_log_variance.weight)
     nn.init.zeros_(self.depth_log_variance.bias)
     nn.init.zeros_(self.depth_gate.weight)
     nn.init.zeros_(self.depth_gate.bias)
     self.heads = dict(regular_heads)
     self.heads.update({
-        'depth_offset': 1, 'depth_log_variance': 1, 'depth_gate': 1})
+        'depth_offset': 1, 'depth_log_variance': 1, 'depth_gate': 1,
+        'depth_quality': 1})
     self.train_stereo_only = False
 
   def train(self, mode=True):
@@ -86,7 +97,8 @@ class StereoDLASeg(DLASeg):
       trainable = {
           'stereo_quality_encoder', 'stereo_coarse_fusion', 'stereo_fusion',
           'stereo_attention', 'target_context', 'depth_offset',
-          'depth_log_variance', 'depth_gate'}
+          'depth_geometry_gate', 'depth_quality', 'depth_log_variance',
+          'depth_gate'}
       for name, module in self.named_children():
         if name not in trainable:
           module.eval()
@@ -103,7 +115,8 @@ class StereoDLASeg(DLASeg):
 
     output = {}
     for head in self.heads:
-      if head not in ('depth_offset', 'depth_log_variance', 'depth_gate'):
+      if head not in (
+          'depth_offset', 'depth_log_variance', 'depth_gate', 'depth_quality'):
         output[head] = self.__getattr__(head)(image_features)
 
     if sgbm_depth is None:
@@ -154,12 +167,30 @@ class StereoDLASeg(DLASeg):
         F.avg_pool2d(stereo_features, 15, stride=1, padding=7)), dim=1)
     target_average = (
         pooled_scales * scale_weights.unsqueeze(2)).sum(dim=1)
+    object_depth, object_quality = object_level_stereo_pool(
+        safe_depth, quality, scale_weights)
     target_features = self.target_context(torch.cat((
         stereo_features,
         target_average,
         F.max_pool2d(stereo_features, 7, stride=1, padding=3),
         objectness), dim=1))
-    output['depth_offset'] = self.depth_offset(target_features)
+    quality_logits = self.depth_quality(target_features)
+    learned_quality = torch.sigmoid(quality_logits)
+    geometry = geometric_surface_offset(output['dim'], output['rot'])
+    # 质量越差，几何先验贡献越小；其余误差由残差头学习。
+    geometry_weight = torch.sigmoid(
+        self.depth_geometry_gate(target_features))
+    geometry_weight = (
+        geometry_weight * object_quality.detach() * learned_quality)
+    geometry_offset = geometry * geometry_weight
+    residual_offset = self.depth_offset(target_features)
+    output['depth_geometry_offset'] = geometry_offset
+    output['depth_offset_residual'] = residual_offset
+    output['depth_offset'] = geometry_offset + residual_offset
+    output['depth_quality'] = quality_logits
+    output['stereo_confidence'] = learned_quality
+    output['object_sgbm_depth'] = object_depth
+    output['object_sgbm_quality'] = object_quality
     output['depth_log_variance'] = self.depth_log_variance(target_features)
     output['depth_gate'] = self.depth_gate(target_features)
     return [output]

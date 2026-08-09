@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""使用 KITTI 真值二维框批量评估 SGBM 深度，隔离检测误差。"""
+"""使用KITTI真值二维框批量评估SGBM深度。"""
 
 import argparse
 import json
@@ -28,7 +28,7 @@ DEPTH_BUCKETS = ((0, 5), (5, 10), (10, 20), (20, 40), (40, 80))
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="批量评估 KITTI SGBM 目标深度")
+    parser = argparse.ArgumentParser(description="批量评估KITTI双目目标深度")
     parser.add_argument("--data-dir", type=Path, default=PROJECT_ROOT / "data" / "kitti")
     parser.add_argument("--split-file", type=Path,
                         default=PROJECT_ROOT / "data" / "kitti" / "ImageSets_3dop" / "val.txt")
@@ -123,7 +123,8 @@ def evaluate_frame(image_id, args, allowed_classes):
         raise RuntimeError("无法读取帧 {} 的双目图像".format(image_id))
     p2, p3 = read_projection_matrices(str(calib_path))
     params = stereo_parameters(p2, p3)
-    disparity = compute_disparity(left, right, args.num_disparities, args.block_size)
+    disparity = compute_disparity(
+        left, right, args.num_disparities, args.block_size)
     depth = disparity_to_depth(disparity, params, args.max_depth)
 
     records = []
@@ -172,6 +173,7 @@ def main():
 
     payload = {
         "evaluation_mode": "使用真值二维框评估双目深度，不包含2D检测误差",
+        "backend": "sgbm",
         "split_file": str(args.split_file.resolve()),
         "frame_count": len(image_ids),
         "failed_frame_count": len(failed_frames),

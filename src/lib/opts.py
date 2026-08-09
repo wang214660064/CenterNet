@@ -195,6 +195,14 @@ class opts(object):
                              help='Huber模式下不确定性校准损失权重')
     self.parser.add_argument('--depth_gate_weight', type=float, default=0.2,
                              help='可学习SGBM门控分类损失权重')
+    self.parser.add_argument('--depth_quality_weight', type=float, default=0.2,
+                             help='目标级SGBM质量监督损失权重')
+    self.parser.add_argument('--stereo_quality_abs_tolerance', type=float,
+                             default=0.5,
+                             help='生成SGBM质量软标签的最小误差尺度，单位m')
+    self.parser.add_argument('--stereo_quality_rel_tolerance', type=float,
+                             default=0.05,
+                             help='生成SGBM质量软标签的相对深度误差尺度')
     self.parser.add_argument('--depth_fusion_weight', type=float, default=0.5,
                              help='融合后深度Huber损失权重')
     self.parser.add_argument('--depth_gate_focal_gamma', type=float, default=2.0,

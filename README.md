@@ -12,9 +12,11 @@
 - [X] 在 `000008` 上完成 CenterNet + SGBM 端到端运行；
 - [X] 使用 KITTI 3DOP 验证集完成SGBM深度基线统计；
 - [X] 生成SGBM深度、质量图和目标级offset监督；
-- [X] 实现可训练的 `stereo_ddd` 模型、9个输出头和联合损失；
+- [X] 实现可训练的 `stereo_ddd` 模型、10个输出头和联合损失；
 - [X] 完成Stereo Fusion Gate v2：双尺度融合、SGBM质量编码、目标感知聚合、ECA注意力和可学习深度门控；
 - [X] 完成园区Gate v3：0～30m重点训练、30～50m远距预警、50m以上仅保留2D用途；gate采用代价加权Focal监督；
+- [X] 完成Geometry Quality v4：目标级SGBM聚合、尺寸/朝向几何先验、质量头与低质量回退；
+- [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
 - [x] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40（最佳权重第10轮，Car Moderate 3D AP_R40 30.88）。
 
@@ -55,7 +57,7 @@ GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IM
 
 程序默认优先使用CUDA；没有CUDA时自动回退CPU，不需要填写GPU参数。CPU仅适合冒烟验证；`--gpus -1`只用于需要强制CPU的调试场景。
 
-训练时终端会显示类似 Ultralytics 的动态进度，包括 epoch、显存、总损失、检测/深度/尺寸/朝向/offset/gate 损失、当前批次目标数和输入尺寸。每轮结束后，`exp/stereo_ddd/<exp_id>/` 自动生成：
+训练时终端会显示类似 Ultralytics 的动态进度，包括 epoch、显存、总损失、检测/深度/尺寸/朝向/offset/gate损失、质量损失`q`、预测SGBM置信度`conf`、几何offset均值`geo`、学习残差均值`res`、当前批次目标数和输入尺寸。每轮结束后，`exp/stereo_ddd/<exp_id>/` 自动生成：
 
 - `results.csv`：逐轮结构化指标，可用表格软件继续分析；
 - `results.png`：总损失、深度、二维检测和三维属性四组曲线；
@@ -68,6 +70,8 @@ GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IM
 正式训练脚本默认每5轮验证一次；若连续2次验证损失未改善至少0.01，训练会自动早停并保留 `model_best.pth`，避免训练集继续下降而验证集恶化。
 
 当前训练脚本已启用距离感知的SGBM门控：质量图只由局部有效视差比例生成；offset采用绝对值和深度比例双重限幅；30m以上使用更严格的质量与不确定性条件。正式脚本会加载旧 `model_best.pth` 作为初始化，但使用新的 `exp_id`、较低学习率并从第1轮重新训练；不能添加 `--resume` 继承旧优化器和轮次。
+
+Geometry Quality v4将SGBM可见表面深度修正拆成“尺寸/朝向几何先验 + 学习残差”。模型按预测二维框尺度聚合目标邻域深度，不再依赖中心单像素；质量头使用训练阶段的真实表面误差生成软标签。高质量目标强化offset监督，低质量目标主要学习拒绝并回退直接深度。尺寸头与朝向头使用`detach()`单向供给，不会被offset损失带偏。
 
 本项目正式使用固定的 `project2000` 数据集，其中1600帧用于训练、400帧用于验证：
 

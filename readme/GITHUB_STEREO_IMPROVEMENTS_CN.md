@@ -15,8 +15,8 @@
 
 - 仓库：https://github.com/XiandaGuo/OpenStereo
 - 提供统一训练评估框架、AMP、TensorRT和多种立体模型；LightStereo面向高效2D代价聚合。
-- 适合程度：高。建议先作为SGBM的可替换深度后端，在同一project2000验证集比较0～30m MAE、延迟和显存。
-- 接入方式：保持当前CenterNet和gate不变，只替换`sgbm_depth/quality`来源。
+- 评估结论：project2000验证集上有效率更高，但0～50m MAE均差于SGBM，因此当前不接入训练和推理主链路。
+- 许可证边界：OpenStereo仓库说明面向学术研究，正式商业部署前必须再次核对代码和权重许可。
 
 ### RAFT-Stereo realtime
 

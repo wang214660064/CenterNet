@@ -5,8 +5,8 @@ python src/main.py stereo_ddd \
   --dataset kitti \
   --kitti_split project2000 \
   --arch stereo_dla_34 \
-  --exp_id stereo_project2000_campus_gate_v3 \
-  --load_model exp/stereo_ddd/stereo_project2000_fusion_gate_v2/model_best.pth \
+  --exp_id stereo_project2000_geometry_quality_v4 \
+  --load_model exp/stereo_ddd/stereo_project2000_campus_gate_v3/model_best.pth \
   --train_stereo_only \
   --batch_size 4 \
   --num_workers 8 \
@@ -22,6 +22,9 @@ python src/main.py stereo_ddd \
   --depth_offset_huber_delta 1.0 \
   --depth_uncertainty_calibration_weight 0.05 \
   --depth_gate_weight 0.2 \
+  --depth_quality_weight 0.2 \
+  --stereo_quality_abs_tolerance 0.5 \
+  --stereo_quality_rel_tolerance 0.05 \
   --depth_fusion_weight 0.5 \
   --depth_gate_focal_gamma 2.0 \
   --depth_gate_focal_alpha 0.5 \

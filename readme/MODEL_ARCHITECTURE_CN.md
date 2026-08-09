@@ -60,8 +60,9 @@
 | `depth_offset` | 1 | SGBM表面到3D框中心的深度修正 | Masked Huber |
 | `depth_log_variance` | 1 | offset不确定性 | 校准损失 |
 | `depth_gate` | 1 | 两种深度的融合权重 | BCE + 融合深度Huber |
+| `depth_quality` | 1 | 目标级SGBM可信度 | 软标签BCE |
 
-模型总参数量为`22,677,057`。使用`--train_stereo_only`时只训练新增双目分支约206万参数。
+模型总参数量为`22,677,571`。使用`--train_stereo_only`时只训练新增双目分支`2,062,248`个参数。
 
 ## 4. 门控监督与安全边界
 
@@ -92,6 +93,31 @@ z_final = gate * z_stereo + (1 - gate) * z_direct
 
 gate不再使用普通BCE。v3采用Focal调制，并按两种候选深度的误差差增加`regret_weight`；误差差小于0.2m的模糊样本不参与gate分类。50m以上强制gate为0，但KITTI离线评估仍保留直接深度预测，避免人为删预测影响对比。
 
+### Geometry Offset v4
+
+SGBM框内中位数更接近物体可见表面，表面到3D中心的偏移与尺寸和观察角有关：
+
+```text
+geometry_offset = 0.5 × (length × |cos(alpha)| + width × |sin(alpha)|)
+depth_offset = quality × learned_geometry_gate × geometry_offset
+             + learned_residual_offset
+```
+
+`dim`和`rot`在进入几何分支前均执行`detach()`。因此尺寸、朝向参与offset推理，但offset损失不会通过该路径修改尺寸头和朝向头。几何项不是硬编码车长一半：SGBM质量差时其贡献自动减小，车窗、侧面、遮挡和框内背景造成的剩余误差由残差头学习。
+
+### 目标级质量路由
+
+模型根据预测二维框尺度，在`3×3、7×7、15×15`三个邻域对SGBM深度做质量加权聚合，避免目标中心恰好位于车窗、反光或无效视差。训练阶段使用标签尺寸和朝向估计真实可见表面位置：
+
+```text
+expected_surface = z_label - geometry_extent(dim_gt, rotation_y_gt)
+surface_error = |z_sgbm - expected_surface|
+tolerance = max(0.5m, 0.05 × z_label)
+quality_target = exp(-surface_error / tolerance)
+```
+
+真值只用于生成训练软标签。推理阶段`depth_quality`只读取左图特征、SGBM深度、局部有效率、离散度、梯度与目标级上下文。offset损失乘以`quality_target`，使错误SGBM不再用巨大残差主导训练；融合阶段使用预测置信度决定采用SGBM修正还是回退网络直接深度。
+
 ## 5. 代码入口
 
 - 模型：`src/lib/models/networks/stereo_pose_dla_dcn.py`
@@ -107,7 +133,7 @@ gate不再使用普通BCE。v3采用Focal调制，并按两种候选深度的误
 ## 6. 当前验证状态
 
 - 9个输出头前向成功，形状正确；
-- 5项相关单元测试通过；
+- 23项项目测试通过；
 - 本地真实KITTI样本完成一次前向、总损失和反向传播；
 - 旧模型可加载DLA和常规检测头，新增模块重新初始化；
-- 尚未完成`project2000`正式训练，因此暂时不能宣称3D AP得到提升。
+- 尚未完成Geometry Quality v4正式训练，因此暂时不能宣称3D AP得到提升。
