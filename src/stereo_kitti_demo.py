@@ -57,7 +57,8 @@ def parse_args():
                       help='最大搜索视差，必须是 16 的倍数')
   parser.add_argument('--block-size', type=int, default=5,
                       help='SGBM 匹配窗口，必须为正奇数')
-  parser.add_argument('--gpus', default='-1', help='例如 0；-1 表示 CPU')
+  parser.add_argument('--gpus', default='0',
+                      help='默认自动使用CUDA，无CUDA时回退CPU；-1强制CPU')
   return parser.parse_args()
 
 

@@ -5,6 +5,7 @@ from __future__ import absolute_import, division, print_function
 import torch
 
 from models.utils import _transpose_and_gather_feat
+from models.networks.stereo_depth_offset import fuse_stereo_depth
 from .ddd import DddLoss, DddTrainer
 
 
@@ -26,17 +27,19 @@ class StereoDddLoss(DddLoss):
           torch.abs(predicted_offset - target) * torch.exp(-log_variance) +
           log_variance)
       offset_loss += (per_target * mask).sum() / valid_count / len(outputs)
-      corrected_depth = batch['sgbm_depth'] + output['depth_offset']
-      dense_log_variance = torch.clamp(
-          output['depth_log_variance'], min=-5.0, max=5.0)
-      uncertainty = torch.exp(0.5 * dense_log_variance)
-      use_stereo = (
-          (batch['sgbm_depth'] > 0) &
-          (batch['sgbm_quality'] >= self.opt.stereo_min_quality) &
-          (corrected_depth > 0) &
-          (uncertainty <= self.opt.depth_offset_max_uncertainty))
       output['direct_dep'] = output['dep']
-      output['dep'] = torch.where(use_stereo, corrected_depth, output['dep'])
+      output['dep'], output['stereo_gate_mask'], output['safe_depth_offset'] = (
+          fuse_stereo_depth(
+              output['direct_dep'], batch['sgbm_depth'], batch['sgbm_quality'],
+              output['depth_offset'], output['depth_log_variance'],
+              min_quality=self.opt.stereo_min_quality,
+              far_distance=self.opt.stereo_far_distance,
+              far_min_quality=self.opt.stereo_far_min_quality,
+              max_uncertainty=self.opt.depth_offset_max_uncertainty,
+              far_max_uncertainty=self.opt.depth_offset_far_max_uncertainty,
+              max_offset_abs=self.opt.depth_offset_max_abs,
+              max_offset_ratio=self.opt.depth_offset_max_ratio,
+              min_offset_limit=self.opt.depth_offset_min_limit))
     loss = base_loss + self.opt.depth_offset_weight * offset_loss
     stats['loss'] = loss
     stats['depth_offset_loss'] = offset_loss

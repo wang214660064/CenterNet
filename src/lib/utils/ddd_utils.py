@@ -47,6 +47,8 @@ def compute_orientation_3d(dim, location, rotation_y):
   return orientation_3d.transpose(1, 0)
 
 def draw_box_3d(image, corners, c=(0, 0, 255)):
+  # OpenCV 5不再接受NumPy浮点数作为像素坐标，绘制前统一取整。
+  corners = np.rint(corners).astype(np.int32)
   face_idx = [[0,1,5,4],
               [1,2,6, 5],
               [2,3,7,6],
@@ -54,13 +56,16 @@ def draw_box_3d(image, corners, c=(0, 0, 255)):
   for ind_f in range(3, -1, -1):
     f = face_idx[ind_f]
     for j in range(4):
-      cv2.line(image, (corners[f[j], 0], corners[f[j], 1]),
-               (corners[f[(j+1)%4], 0], corners[f[(j+1)%4], 1]), c, 2, lineType=cv2.LINE_AA)
+      point1 = tuple(int(value) for value in corners[f[j]])
+      point2 = tuple(int(value) for value in corners[f[(j+1)%4]])
+      cv2.line(image, point1, point2, c, 2, lineType=cv2.LINE_AA)
     if ind_f == 0:
-      cv2.line(image, (corners[f[0], 0], corners[f[0], 1]),
-               (corners[f[2], 0], corners[f[2], 1]), c, 1, lineType=cv2.LINE_AA)
-      cv2.line(image, (corners[f[1], 0], corners[f[1], 1]),
-               (corners[f[3], 0], corners[f[3], 1]), c, 1, lineType=cv2.LINE_AA)
+      cv2.line(image, tuple(int(v) for v in corners[f[0]]),
+               tuple(int(v) for v in corners[f[2]]),
+               c, 1, lineType=cv2.LINE_AA)
+      cv2.line(image, tuple(int(v) for v in corners[f[1]]),
+               tuple(int(v) for v in corners[f[3]]),
+               c, 1, lineType=cv2.LINE_AA)
   return image
 
 def unproject_2d_to_3d(pt_2d, depth, P):

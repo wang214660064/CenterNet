@@ -54,11 +54,10 @@ SGBM 在无纹理、反光、遮挡边界和远距离处会失效。脚本不会
 ```bash
 python src/stereo_kitti_demo.py \
   --split training \
-  --image-id 000008 \
-  --gpus -1
+  --image-id 000008
 ```
 
-GPU 推理把 `--gpus -1` 改为 `--gpus 0`。默认输出到：
+程序默认优先使用CUDA，没有CUDA时自动回退CPU。默认输出到：
 
 ```text
 exp/stereo_stage1/training_000008_detections.jpg

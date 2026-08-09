@@ -91,11 +91,18 @@ class StereoDddDataset(DddDataset):
 
     safe_depth = np.where(np.isfinite(depth), depth, 0).astype(np.float32)
     valid_map = np.isfinite(depth).astype(np.float32)
+    window = int(self.opt.stereo_quality_window)
+    if window <= 0 or window % 2 == 0:
+      raise ValueError('stereo_quality_window必须是正奇数')
+    # 局部有效比例只由双目图像产生，不能使用真值框修改模型输入。
+    quality_map = cv2.boxFilter(
+        valid_map, ddepth=-1, ksize=(window, window), normalize=True,
+        borderType=cv2.BORDER_REPLICATE)
     output_size = (self.opt.output_w, self.opt.output_h)
     ret['sgbm_depth'] = cv2.warpAffine(
         safe_depth, transform, output_size, flags=cv2.INTER_LINEAR)[None]
     ret['sgbm_quality'] = cv2.warpAffine(
-        valid_map, transform, output_size, flags=cv2.INTER_NEAREST)[None]
+        quality_map, transform, output_size, flags=cv2.INTER_LINEAR)[None]
 
     offset_target = np.zeros((self.max_objs, 1), dtype=np.float32)
     offset_mask = np.zeros((self.max_objs), dtype=np.uint8)
@@ -108,13 +115,9 @@ class StereoDddDataset(DddDataset):
       measured = self._measure_box_depth(depth, self._coco_box_to_bbox(ann['bbox']))
       if measured is None:
         continue
-      sgbm_depth, quality = measured
+      sgbm_depth, _ = measured
       offset_target[k, 0] = float(ann['depth']) - sgbm_depth
       offset_mask[k] = 1
-      # 中心位置的质量值用于offset头的门控输入。
-      center_index = int(ret['ind'][k])
-      center_y, center_x = divmod(center_index, self.opt.output_w)
-      ret['sgbm_quality'][0, center_y, center_x] = quality
 
     ret['depth_offset'] = offset_target
     ret['depth_offset_mask'] = offset_mask

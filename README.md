@@ -21,7 +21,7 @@
 右图下载并解压到 `data/kitti/training/image_3` 后：
 
 ```bash
-python src/stereo_kitti_demo.py --image-id 000008 --gpus -1
+python src/stereo_kitti_demo.py --image-id 000008
 ```
 
 输出位于 `exp/stereo_stage1`：
@@ -47,10 +47,10 @@ python src/stereo_kitti_demo.py --image-id 000008 --gpus -1
 /opt/miniconda3/envs/clip/bin/python src/main.py stereo_ddd \
   --dataset kitti --arch stereo_dla_34 \
   --exp_id stereo_sgbm_offset \
-  --batch_size 4 --num_workers 2 --gpus -1
+  --batch_size 4 --num_workers 2
 ```
 
-CPU仅适合冒烟验证；正式训练应在NVIDIA GPU环境把 `--gpus -1` 改为 `--gpus 0`。
+程序默认优先使用CUDA；没有CUDA时自动回退CPU，不需要填写GPU参数。CPU仅适合冒烟验证；`--gpus -1`只用于需要强制CPU的调试场景。
 
 训练时终端会显示类似 Ultralytics 的动态进度，包括 epoch、显存、总损失、检测/深度/尺寸/朝向/offset 损失、当前批次目标数和输入尺寸。每轮结束后，`exp/stereo_ddd/<exp_id>/` 自动生成：
 
@@ -64,7 +64,27 @@ CPU仅适合冒烟验证；正式训练应在NVIDIA GPU环境把 `--gpus -1` 改
 
 正式训练脚本默认每5轮验证一次；若连续2次验证损失未改善至少0.01，训练会自动早停并保留 `model_best.pth`，避免训练集继续下降而验证集恶化。
 
+当前训练脚本已启用距离感知的SGBM门控：质量图只由局部有效视差比例生成；offset采用绝对值和深度比例双重限幅；30m以上使用更严格的质量与不确定性条件。正式脚本会加载旧 `model_best.pth` 作为初始化，但使用新的 `exp_id`、较低学习率并从第1轮重新训练；不能添加 `--resume` 继承旧优化器和轮次。
+
 使用 `src/main.py ... --test --load_model <权重>` 完整推理验证集后，会生成KITTI格式预测、PR统计文件和 `kitti_ap_r40.json`，其中包含Car、Pedestrian、Cyclist的2D、AOS、BEV和3D AP_R40。
+
+可视化一帧训练模型的3D预测、真值与BEV对比：
+
+```bash
+/root/miniconda3/bin/python src/tools/visualize_stereo_prediction.py \
+  --image-id 000008 \
+  --load-model exp/stereo_ddd/stereo_sgbm_offset/model_best.pth
+```
+
+结果保存在 `exp/stereo_ddd/stereo_single_visual/debug`。重点查看 `0add_pred.png`（预测3D框）、`0bird_pred_gt.png`（预测与真值BEV）和 `0out.png`（综合视图）。帧号必须属于3DOP验证集。
+
+将完整验证结果按距离、遮挡和误差来源拆解：
+
+```bash
+conda run -n clip python src/tools/analyze_stereo_errors.py
+```
+
+输出 `error_analysis.json`（汇总指标）和 `error_analysis_records.csv`（逐目标明细）。诊断采用2D IoU匹配，并分别统计最终深度、SGBM深度、尺寸、朝向、BEV IoU和3D IoU；反事实指标会单独将深度、尺寸或朝向替换成真值，用于估计各分支对3D IoU的影响。
 
 ## 数据学习工具
 

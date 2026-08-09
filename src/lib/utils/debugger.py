@@ -333,11 +333,8 @@ class Debugger(object):
     self, img_path, dets, calib,
     center_thresh, pred, bev, img_id='out'):
     self.imgs[img_id] = cv2.imread(img_path)
-    # h, w = self.imgs[img_id].shape[:2]
-    # pred = cv2.resize(pred, (h, w))
-    h, w = pred.shape[:2]
-    hs, ws = self.imgs[img_id].shape[0] / h, self.imgs[img_id].shape[1] / w
-    self.imgs[img_id] = cv2.resize(self.imgs[img_id], (w, h))
+    image_h, image_w = self.imgs[img_id].shape[:2]
+    pred = cv2.resize(pred, (image_w, image_h))
     self.add_blend_img(self.imgs[img_id], pred, img_id)
     for cat in dets:
       for i in range(len(dets[cat])):
@@ -351,11 +348,15 @@ class Debugger(object):
           if loc[2] > 1:
             box_3d = compute_box_3d(dim, loc, rot_y)
             box_2d = project_to_image(box_3d, calib)
-            box_2d[:, 0] /= hs
-            box_2d[:, 1] /= ws
             self.imgs[img_id] = draw_box_3d(self.imgs[img_id], box_2d, cl)
-    self.imgs[img_id] = np.concatenate(
-      [self.imgs[img_id], self.imgs[bev]], axis=1)
+    main_image = self.imgs[img_id]
+    bev_image = self.imgs[bev]
+    if bev_image.shape[0] != main_image.shape[0]:
+      # KITTI是宽画幅，BEV为方形；按高度等比例缩放后再横向拼接。
+      bev_width = int(round(
+          bev_image.shape[1] * main_image.shape[0] / bev_image.shape[0]))
+      bev_image = cv2.resize(bev_image, (bev_width, main_image.shape[0]))
+    self.imgs[img_id] = np.concatenate([main_image, bev_image], axis=1)
 
   def add_2d_detection(
     self, img, dets, show_box=False, show_txt=True, 
@@ -389,8 +390,9 @@ class Debugger(object):
               True,lc,2,lineType=cv2.LINE_AA)
           for e in [[0, 1]]:
             t = 4 if e == [0, 1] else 1
-            cv2.line(bird_view, (rect[e[0]][0], rect[e[0]][1]),
-                    (rect[e[1]][0], rect[e[1]][1]), lc, t,
+            point1 = tuple(int(value) for value in rect[e[0]])
+            point2 = tuple(int(value) for value in rect[e[1]])
+            cv2.line(bird_view, point1, point2, lc, t,
                     lineType=cv2.LINE_AA)
     self.imgs[img_id] = bird_view
 
@@ -422,8 +424,9 @@ class Debugger(object):
             # for e in [[0, 1], [1, 2], [2, 3], [3, 0]]:
             for e in [[0, 1]]:
               t = 4 if e == [0, 1] else 1
-              cv2.line(bird_view, (rect[e[0]][0], rect[e[0]][1]),
-                      (rect[e[1]][0], rect[e[1]][1]), lc, t,
+              point1 = tuple(int(value) for value in rect[e[0]])
+              point2 = tuple(int(value) for value in rect[e[1]])
+              cv2.line(bird_view, point1, point2, lc, t,
                       lineType=cv2.LINE_AA)
     self.imgs[img_id] = bird_view
 

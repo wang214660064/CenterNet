@@ -62,3 +62,29 @@ def stereo_offset_loss(predicted_offset, predicted_log_variance,
   loss = (torch.abs(predicted_offset - target_offset) * torch.exp(-log_variance) +
           log_variance)
   return (loss * valid_mask).sum() / valid_count
+
+
+def fuse_stereo_depth(direct_depth, sgbm_depth, quality, predicted_offset,
+                      predicted_log_variance, min_quality=0.5,
+                      far_distance=30.0, far_min_quality=0.8,
+                      max_uncertainty=10.0, far_max_uncertainty=3.0,
+                      max_offset_abs=8.0, max_offset_ratio=0.15,
+                      min_offset_limit=2.0):
+  """按距离、质量和不确定性安全地融合SGBM offset。"""
+  uncertainty = torch.exp(0.5 * torch.clamp(
+      predicted_log_variance, min=-5.0, max=5.0))
+  offset_limit = torch.clamp(
+      sgbm_depth * max_offset_ratio, min=min_offset_limit,
+      max=max_offset_abs)
+  safe_offset = torch.clamp(predicted_offset, -offset_limit, offset_limit)
+  corrected_depth = sgbm_depth + safe_offset
+  far = sgbm_depth >= far_distance
+  required_quality = torch.where(
+      far, torch.full_like(quality, far_min_quality),
+      torch.full_like(quality, min_quality))
+  allowed_uncertainty = torch.where(
+      far, torch.full_like(uncertainty, far_max_uncertainty),
+      torch.full_like(uncertainty, max_uncertainty))
+  use_stereo = ((sgbm_depth > 0) & (quality >= required_quality) &
+                (corrected_depth > 0) & (uncertainty <= allowed_uncertainty))
+  return torch.where(use_stereo, corrected_depth, direct_depth), use_stereo, safe_offset

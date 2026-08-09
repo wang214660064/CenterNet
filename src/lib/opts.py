@@ -34,8 +34,8 @@ class opts(object):
                                   'in the exp dir if load_model is empty.') 
 
     # system
-    self.parser.add_argument('--gpus', default='0', 
-                             help='-1 for CPU, use comma for multiple gpus')
+    self.parser.add_argument('--gpus', default='0',
+                             help='默认自动使用CUDA，无CUDA时回退CPU；-1强制CPU')
     self.parser.add_argument('--num_workers', type=int, default=4,
                              help='dataloader threads. 0 for single-thread.')
     self.parser.add_argument('--not_cuda_benchmark', action='store_true',
@@ -193,8 +193,22 @@ class opts(object):
                              help='参与offset训练的最大SGBM深度')
     self.parser.add_argument('--stereo_min_quality', type=float, default=0.5,
                              help='启用SGBM修正深度的最低质量')
+    self.parser.add_argument('--stereo_far_distance', type=float, default=30.0,
+                             help='开始使用严格SGBM门控的距离，单位m')
+    self.parser.add_argument('--stereo_far_min_quality', type=float, default=0.8,
+                             help='远距离启用SGBM修正的最低质量')
+    self.parser.add_argument('--stereo_quality_window', type=int, default=31,
+                             help='计算局部SGBM有效比例的窗口尺寸')
     self.parser.add_argument('--depth_offset_max_uncertainty', type=float, default=10.0,
                              help='启用offset修正的最大预测标准差')
+    self.parser.add_argument('--depth_offset_far_max_uncertainty', type=float, default=3.0,
+                             help='远距离启用offset修正的最大预测标准差')
+    self.parser.add_argument('--depth_offset_max_abs', type=float, default=8.0,
+                             help='offset修正绝对上限，单位m')
+    self.parser.add_argument('--depth_offset_max_ratio', type=float, default=0.15,
+                             help='offset修正相对SGBM深度的上限比例')
+    self.parser.add_argument('--depth_offset_min_limit', type=float, default=2.0,
+                             help='近距离允许的最小offset上限，单位m')
     
     # task
     # ctdet
