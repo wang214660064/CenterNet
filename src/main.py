@@ -30,7 +30,7 @@ def configure_stereo_only_training(model):
   prefixes = (
       'stereo_quality_encoder.', 'stereo_coarse_fusion.', 'stereo_fusion.',
       'stereo_attention.', 'target_context.', 'depth_offset.',
-      'depth_geometry_gate.', 'depth_quality.', 'depth_log_variance.',
+      'depth_geometry_gate.', 'depth_log_variance.',
       'depth_gate.')
   for name, parameter in model.named_parameters():
     parameter.requires_grad = name.startswith(prefixes)

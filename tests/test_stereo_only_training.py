@@ -20,7 +20,6 @@ class TinyStereoModel(torch.nn.Module):
     self.target_context = torch.nn.Linear(2, 2)
     self.depth_offset = torch.nn.Linear(2, 1)
     self.depth_geometry_gate = torch.nn.Linear(2, 1)
-    self.depth_quality = torch.nn.Linear(2, 1)
     self.depth_log_variance = torch.nn.Linear(2, 1)
     self.depth_gate = torch.nn.Linear(2, 1)
     self.train_stereo_only = False
@@ -34,7 +33,6 @@ def test_configure_stereo_only_training():
   assert model.stereo_fusion.weight.requires_grad
   assert model.depth_offset.weight.requires_grad
   assert model.depth_geometry_gate.weight.requires_grad
-  assert model.depth_quality.weight.requires_grad
   assert model.depth_log_variance.weight.requires_grad
   assert model.depth_gate.weight.requires_grad
-  assert sum(parameter.numel() for parameter in parameters) == 45
+  assert sum(parameter.numel() for parameter in parameters) == 42

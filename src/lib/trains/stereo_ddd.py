@@ -18,10 +18,8 @@ class StereoDddLoss(DddLoss):
     offset_loss = 0
     gate_loss = 0
     fusion_depth_loss = 0
-    quality_loss = 0
     geometry_offset_mean = 0
     residual_offset_mean = 0
-    stereo_confidence_mean = 0
     for output in outputs:
       predicted_offset = _transpose_and_gather_feat(
           output['depth_offset'], batch['ind'])
@@ -29,8 +27,6 @@ class StereoDddLoss(DddLoss):
           output['depth_log_variance'], batch['ind'])
       predicted_gate_logits = _transpose_and_gather_feat(
           output['depth_gate'], batch['ind'])
-      predicted_quality_logits = _transpose_and_gather_feat(
-          output['depth_quality'], batch['ind'])
       target = batch['depth_offset']
       target_depth = batch['dep']
       mask = batch['depth_offset_mask'].unsqueeze(2).to(
@@ -46,10 +42,6 @@ class StereoDddLoss(DddLoss):
       residual_offset_mean += (
           (predicted_residual * mask).sum() /
           diagnostic_count / len(outputs))
-      predicted_confidence = torch.sigmoid(predicted_quality_logits)
-      stereo_confidence_mean += (
-          (predicted_confidence * mask).sum() /
-          diagnostic_count / len(outputs))
       distance_weight = campus_distance_weights(
           target_depth,
           near_distance=self.opt.campus_near_distance,
@@ -59,16 +51,8 @@ class StereoDddLoss(DddLoss):
           core_weight=self.opt.campus_core_weight,
           warning_weight=self.opt.campus_warning_weight,
           beyond_weight=self.opt.campus_beyond_weight)
-      target_quality = batch['stereo_quality_target'].to(
-          dtype=predicted_offset.dtype)
-      weighted_mask = mask * distance_weight * target_quality
+      weighted_mask = mask * distance_weight
       valid_count = torch.clamp(weighted_mask.sum(), min=1.0)
-      quality_per_target = F.binary_cross_entropy_with_logits(
-          predicted_quality_logits, target_quality, reduction='none')
-      quality_weight = mask * distance_weight
-      quality_loss += (
-          (quality_per_target * quality_weight).sum() /
-          torch.clamp(quality_weight.sum(), min=1.0) / len(outputs))
       if self.opt.depth_offset_loss == 'huber':
         offset_loss += stereo_huber_uncertainty_loss(
             predicted_offset, predicted_log_variance, target, weighted_mask,
@@ -87,8 +71,7 @@ class StereoDddLoss(DddLoss):
       output['direct_dep'] = output['dep']
       output['dep'], output['stereo_gate_mask'], output['safe_depth_offset'] = (
           fuse_stereo_depth(
-              output['direct_dep'], output['object_sgbm_depth'],
-              output['stereo_confidence'],
+              output['direct_dep'], batch['sgbm_depth'], batch['sgbm_quality'],
               output['depth_offset'], output['depth_log_variance'],
               learned_gate_logits=output['depth_gate'],
               min_quality=self.opt.stereo_min_quality,
@@ -106,9 +89,9 @@ class StereoDddLoss(DddLoss):
       safe_offset = _transpose_and_gather_feat(
           output['safe_depth_offset'], batch['ind'])
       sgbm_depth = _transpose_and_gather_feat(
-          output['object_sgbm_depth'], batch['ind'])
+          batch['sgbm_depth'], batch['ind'])
       sgbm_quality = _transpose_and_gather_feat(
-          output['stereo_confidence'], batch['ind'])
+          batch['sgbm_quality'], batch['ind'])
       corrected_depth = sgbm_depth + safe_offset
 
       far = sgbm_depth >= self.opt.stereo_far_distance
@@ -147,17 +130,14 @@ class StereoDddLoss(DddLoss):
           (fusion_per_target * fusion_weight).sum() /
           torch.clamp(fusion_weight.sum(), min=1.0) / len(outputs))
     loss = (base_loss + self.opt.depth_offset_weight * offset_loss +
-            self.opt.depth_quality_weight * quality_loss +
             self.opt.depth_gate_weight * gate_loss +
             self.opt.depth_fusion_weight * fusion_depth_loss)
     stats['loss'] = loss
     stats['depth_offset_loss'] = offset_loss
     stats['depth_gate_loss'] = gate_loss
     stats['depth_fusion_loss'] = fusion_depth_loss
-    stats['depth_quality_loss'] = quality_loss
     stats['geometry_offset_mean'] = geometry_offset_mean.detach()
     stats['residual_offset_mean'] = residual_offset_mean.detach()
-    stats['stereo_confidence_mean'] = stereo_confidence_mean.detach()
     return loss, stats
 
 
@@ -166,6 +146,5 @@ class StereoDddTrainer(DddTrainer):
     loss_states = [
         'loss', 'hm_loss', 'dep_loss', 'dim_loss', 'rot_loss',
         'wh_loss', 'off_loss', 'depth_offset_loss', 'depth_gate_loss',
-        'depth_fusion_loss', 'depth_quality_loss', 'geometry_offset_mean',
-        'residual_offset_mean', 'stereo_confidence_mean']
+        'depth_fusion_loss', 'geometry_offset_mean', 'residual_offset_mean']
     return loss_states, StereoDddLoss(opt)

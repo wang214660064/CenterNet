@@ -78,33 +78,6 @@ def geometric_surface_offset(dimensions, rotation):
       width * torch.abs(torch.sin(alpha)))
 
 
-def object_level_stereo_pool(depth, quality, scale_weights,
-                             kernels=(3, 7, 15)):
-  """按预测目标尺度聚合SGBM，避免只读取目标中心的单个像素。"""
-  if scale_weights.shape[1] != len(kernels):
-    raise ValueError('scale_weights通道数必须与聚合尺度数量一致')
-  valid = torch.isfinite(depth) & (depth > 0)
-  safe_depth = torch.where(valid, depth, torch.zeros_like(depth))
-  safe_quality = torch.where(valid, quality, torch.zeros_like(quality))
-  safe_quality = torch.clamp(safe_quality, 0, 1)
-  pooled_depths, pooled_qualities = [], []
-  for kernel in kernels:
-    denominator = F.avg_pool2d(
-        safe_quality, kernel, stride=1, padding=kernel // 2)
-    numerator = F.avg_pool2d(
-        safe_depth * safe_quality, kernel, stride=1, padding=kernel // 2)
-    pooled_depths.append(numerator / torch.clamp(denominator, min=1e-4))
-    pooled_qualities.append(denominator)
-  depth_stack = torch.stack(pooled_depths, dim=1)
-  quality_stack = torch.stack(pooled_qualities, dim=1)
-  weights = scale_weights.unsqueeze(2)
-  object_depth = (depth_stack * weights).sum(dim=1)
-  object_quality = (quality_stack * weights).sum(dim=1)
-  object_depth = torch.where(
-      object_quality > 1e-4, object_depth, torch.zeros_like(object_depth))
-  return object_depth, torch.clamp(object_quality, 0, 1)
-
-
 def stereo_offset_loss(predicted_offset, predicted_log_variance,
                        target_offset, valid_mask):
   """带有效掩码的Laplace不确定性损失。"""

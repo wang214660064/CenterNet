@@ -100,7 +100,6 @@ class StereoDddDataset(DddDataset):
 
     offset_target = np.zeros((self.max_objs, 1), dtype=np.float32)
     offset_mask = np.zeros((self.max_objs), dtype=np.uint8)
-    quality_target = np.zeros((self.max_objs, 1), dtype=np.float32)
     ann_ids = self.coco.getAnnIds(imgIds=[image_id])
     anns = self.coco.loadAnns(ids=ann_ids)
     for k, ann in enumerate(anns[:self.max_objs]):
@@ -119,20 +118,7 @@ class StereoDddDataset(DddDataset):
               sgbm_depth * self.opt.depth_offset_max_ratio))
       offset_target[k, 0] = np.clip(raw_offset, -offset_limit, offset_limit)
       offset_mask[k] = 1
-      dimensions = ann['dim']  # KITTI顺序为[h, w, l]。
-      rotation_y = float(ann['rotation_y'])
-      surface_extent = 0.5 * (
-          float(dimensions[2]) * abs(np.cos(rotation_y)) +
-          float(dimensions[1]) * abs(np.sin(rotation_y)))
-      expected_surface_depth = float(ann['depth']) - surface_extent
-      surface_error = abs(sgbm_depth - expected_surface_depth)
-      tolerance = max(
-          self.opt.stereo_quality_abs_tolerance,
-          float(ann['depth']) * self.opt.stereo_quality_rel_tolerance)
-      # 真值只生成训练软标签；推理阶段质量头只读取图像与SGBM特征。
-      quality_target[k, 0] = np.exp(-surface_error / tolerance)
 
     ret['depth_offset'] = offset_target
     ret['depth_offset_mask'] = offset_mask
-    ret['stereo_quality_target'] = quality_target
     return ret
