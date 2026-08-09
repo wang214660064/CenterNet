@@ -139,7 +139,9 @@ class Logger(object):
     groups = [
         ('Total loss', ['train/loss', 'val/loss']),
         ('Depth', ['train/dep_loss', 'train/depth_offset_loss',
-                'val/dep_loss', 'val/depth_offset_loss']),
+                'train/depth_gate_loss', 'train/depth_fusion_loss',
+                'val/dep_loss', 'val/depth_offset_loss',
+                'val/depth_gate_loss', 'val/depth_fusion_loss']),
         ('2D detection', ['train/hm_loss', 'train/wh_loss', 'train/off_loss',
                    'val/hm_loss', 'val/wh_loss', 'val/off_loss']),
         ('3D attributes', ['train/dim_loss', 'train/rot_loss',

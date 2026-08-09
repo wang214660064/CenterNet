@@ -30,6 +30,16 @@ class StereoGeometryTest(unittest.TestCase):
     result = STEREO.measure_detection([10, 10, 90, 90], disparity, depth, params)
     self.assertIsNone(result)
 
+  def test_campus_distance_policy(self):
+    near = STEREO.campus_distance_policy(12.0, 0.8, 0.2)
+    warning = STEREO.campus_distance_policy(38.0, 0.9, 0.1)
+    beyond = STEREO.campus_distance_policy(55.0, 0.9, 0.1)
+    self.assertTrue(near['depth_reliable'])
+    self.assertEqual(warning['recommended_use'], 'tracking_warning')
+    self.assertFalse(warning['depth_reliable'])
+    self.assertEqual(beyond['recommended_use'], '2d_only')
+    self.assertFalse(beyond['use_for_emergency_braking'])
+
 
 if __name__ == '__main__':
   unittest.main()

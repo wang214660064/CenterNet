@@ -153,9 +153,9 @@ class opts(object):
     self.parser.add_argument('--rect_mask', action='store_true',
                              help='for ignored object, apply mask on the '
                                   'rectangular region or just center point.')
-    self.parser.add_argument('--kitti_split', default='3dop',
+    self.parser.add_argument('--kitti_split', default='project2000',
                              help='different validation split for kitti: '
-                                  '3dop | subcnn')
+                                  'project2000 | 3dop | subcnn')
 
     # loss
     self.parser.add_argument('--mse_loss', action='store_true',
@@ -185,6 +185,41 @@ class opts(object):
     self.parser.add_argument('--peak_thresh', type=float, default=0.2)
     self.parser.add_argument('--depth_offset_weight', type=float, default=1.0,
                              help='SGBM深度offset不确定性损失权重')
+    self.parser.add_argument('--depth_offset_loss', default='laplace',
+                             choices=['laplace', 'huber'],
+                             help='offset回归损失模式')
+    self.parser.add_argument('--depth_offset_huber_delta', type=float, default=1.0,
+                             help='Huber offset损失转折点，单位m')
+    self.parser.add_argument('--depth_uncertainty_calibration_weight',
+                             type=float, default=0.05,
+                             help='Huber模式下不确定性校准损失权重')
+    self.parser.add_argument('--depth_gate_weight', type=float, default=0.2,
+                             help='可学习SGBM门控分类损失权重')
+    self.parser.add_argument('--depth_fusion_weight', type=float, default=0.5,
+                             help='融合后深度Huber损失权重')
+    self.parser.add_argument('--depth_gate_focal_gamma', type=float, default=2.0,
+                             help='门控Focal Loss的gamma')
+    self.parser.add_argument('--depth_gate_focal_alpha', type=float, default=0.5,
+                             help='门控Focal Loss的正类alpha')
+    self.parser.add_argument('--depth_gate_ambiguity_margin', type=float,
+                             default=0.2,
+                             help='两种深度误差差小于该值时忽略gate监督，单位m')
+    self.parser.add_argument('--depth_gate_max_regret', type=float, default=4.0,
+                             help='门控错误代价权重的最大附加值')
+    self.parser.add_argument('--campus_near_distance', type=float, default=15.0,
+                             help='园区近距离边界，单位m')
+    self.parser.add_argument('--campus_core_distance', type=float, default=30.0,
+                             help='园区核心3D检测边界，单位m')
+    self.parser.add_argument('--campus_warning_distance', type=float, default=50.0,
+                             help='园区远距离预警边界，单位m')
+    self.parser.add_argument('--campus_near_weight', type=float, default=2.0,
+                             help='0～15m双目损失权重')
+    self.parser.add_argument('--campus_core_weight', type=float, default=1.5,
+                             help='15～30m双目损失权重')
+    self.parser.add_argument('--campus_warning_weight', type=float, default=0.5,
+                             help='30～50m双目损失权重')
+    self.parser.add_argument('--campus_beyond_weight', type=float, default=0.0,
+                             help='50m以上双目损失权重')
     self.parser.add_argument('--stereo_num_disparities', type=int, default=128,
                              help='SGBM视差搜索范围，必须为16的倍数')
     self.parser.add_argument('--stereo_block_size', type=int, default=5,
@@ -209,6 +244,8 @@ class opts(object):
                              help='offset修正相对SGBM深度的上限比例')
     self.parser.add_argument('--depth_offset_min_limit', type=float, default=2.0,
                              help='近距离允许的最小offset上限，单位m')
+    self.parser.add_argument('--train_stereo_only', action='store_true',
+                             help='冻结骨干和常规检测头，只训练双目offset分支')
     
     # task
     # ctdet
@@ -348,7 +385,8 @@ class opts(object):
       if opt.reg_offset:
         opt.heads.update({'reg': 2})
       if opt.task == 'stereo_ddd':
-        opt.heads.update({'depth_offset': 1, 'depth_log_variance': 1})
+        opt.heads.update({
+            'depth_offset': 1, 'depth_log_variance': 1, 'depth_gate': 1})
     elif opt.task == 'ctdet':
       # assert opt.dataset in ['pascal', 'coco']
       opt.heads = {'hm': opt.num_classes,

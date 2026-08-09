@@ -1,4 +1,4 @@
-# Stereo DDD + SGBM Offset 模型结构
+# Stereo Campus Gate v3 模型结构
 
 ## 1. 总体结构
 
@@ -6,103 +6,108 @@
 左图 RGB [B,3,384,1280]
           │
           ▼
-    DLA-34 Backbone
-          │
-      DLAUp + IDAUp
+    DLA-34 + DLAUp + IDAUp
           │
 图像特征 [B,64,96,320]
-    ├──────────────────────────────────────────────────────┐
-    │                                                      │
-    ├─ hm [3]             类别中心热图                     │
-    ├─ wh [2]             2D框宽高                         │
-    ├─ reg [2]            中心亚像素偏移                   │
-    ├─ dep [1]            无SGBM时的直接深度回退           │
-    ├─ dim [3]            3D框尺寸                         │
-    └─ rot [8]            MultiBin朝向                     │
-                                                           │
-左右图 ── StereoSGBM ──> 深度图 + 有效/质量图              │
-                           │                               │
-                           ▼                               │
-      concat(图像特征, log归一化深度, 质量) <───────────────┘
+    ├─ hm [3] / wh [2] / reg [2]
+    ├─ direct dep [1] / dim [3] / rot [8]
+    │
+    └───────────────────────────────────────────┐
+                                                │
+左右图 ── StereoSGBM ──> 深度图 + 有效比例图   │
+                           │                    │
+                           ▼                    │
+       深度/有效比例/局部离散度/梯度质量编码器  │
+                           │                    │
+              1/4细尺度 + 1/8粗尺度融合 <───────┘
                            │
-                  3x3 Conv + ReLU × 2
-                     ├──────────────┐
-                     ▼              ▼
-             depth_offset [1]  depth_log_variance [1]
-                     │              │
-                     └─────门控─────┘
+                       ECA注意力
                            │
-          z_corrected = z_sgbm + depth_offset
+       按预测框大小选择3×3/7×7/15×15目标上下文
+                  ┌────────┼───────────┐
+                  ▼        ▼           ▼
+              offset  uncertainty  learned_gate
+                  │        │           │
+                  └────────┴───────────┘
                            │
-          SGBM无效或不确定性过大时使用direct dep
+       z_final = gate*z_stereo + (1-gate)*z_direct
                            │
-                           ▼
-               最终KITTI 3D检测框
+          无效或越过安全边界时强制使用direct dep
 ```
 
-## 2. 输出头
+## 2. 五项结构改造
 
-输入分辨率为 `384×1280`，下采样倍数为4，所有输出头尺寸为 `96×320`。
+1. `depth_gate`学习选择SGBM修正深度或网络直接深度；
+2. 使用1/4细尺度和1/8粗尺度的轻量双尺度融合；
+3. 根据预测2D框大小，在3×3、7×7和15×15邻域间自适应聚合目标特征；
+4. 独立编码SGBM深度、有效比例、局部离散度和深度梯度；
+5. 融合特征经过ECA轻量通道注意力。
+
+第三项采用CenterNet兼容的目标中心聚合方式：保留稠密输出形式，但每个中心位置会根据预测框大小读取不同范围的目标上下文，不再只依赖中心单像素。
+
+## 3. 输出头
+
+输入为`384×1280`，下采样倍数为4，全部输出尺寸为`96×320`。
 
 | 输出头 | 通道 | 作用 | 监督 |
 |---|---:|---|---|
 | `hm` | 3 | Pedestrian、Car、Cyclist中心热图 | Focal Loss |
 | `wh` | 2 | 2D框宽高 | L1 |
-| `reg` | 2 | 中心点小数偏移 | L1 |
-| `dep` | 1 | 网络直接深度，SGBM失败回退 | L1 |
-| `dim` | 3 | 3D框高宽长 | L1 |
-| `rot` | 8 | 两组方向分类和残差 | BinRot Loss |
-| `depth_offset` | 1 | SGBM表面深度到3D框中心的修正 | Masked Laplace Loss |
-| `depth_log_variance` | 1 | offset预测不确定性 | 与offset联合优化 |
+| `reg` | 2 | 中心亚像素偏移 | L1 |
+| `dep` | 1 | 网络直接深度 | L1 |
+| `dim` | 3 | 3D框尺寸 | L1 |
+| `rot` | 8 | MultiBin朝向 | BinRot Loss |
+| `depth_offset` | 1 | SGBM表面到3D框中心的深度修正 | Masked Huber |
+| `depth_log_variance` | 1 | offset不确定性 | 校准损失 |
+| `depth_gate` | 1 | 两种深度的融合权重 | BCE + 融合深度Huber |
 
-模型实测总参数量为 `21,358,237`，全部可训练。
+模型总参数量为`22,677,057`。使用`--train_stereo_only`时只训练新增双目分支约206万参数。
 
-## 3. Offset监督与融合
+## 4. 门控监督与安全边界
 
 ```text
 offset_target = z_label - z_sgbm
-z_corrected = z_sgbm + offset_pred
-uncertainty = exp(0.5 * depth_log_variance)
+z_stereo = z_sgbm + limited_offset
+gate = sigmoid(depth_gate)
+z_final = gate * z_stereo + (1 - gate) * z_direct
 ```
 
-仅当以下条件同时成立时使用修正深度：
+训练期间比较`z_stereo`和`z_direct`与真值深度的误差，误差较小的一方生成gate监督。真值只参与训练损失，推理阶段不读取标签。
 
-- SGBM深度大于0；
-- SGBM质量不低于 `stereo_min_quality`；
-- 修正后深度大于0；
-- 预测不确定性不超过 `depth_offset_max_uncertainty`。
+可学习gate外面仍保留硬安全边界：
 
-距离门控进一步限制灾难性修正：
+- SGBM深度必须有效，质量必须达到阈值；
+- offset不超过8m、SGBM深度的15%，近距离上限不低于2m；
+- 30m以上要求质量不低于0.8、预测标准差不超过3m；
+- 条件不满足时gate强制为0，回退到网络直接深度。
 
-- SGBM质量图使用31×31窗口的局部有效视差比例，只由左右图像计算，不使用真值框改写；
-- offset绝对值不超过8m，同时不超过SGBM深度的15%，近距离至少允许2m修正；
-- 30m以上要求质量不低于0.8、预测标准差不超过3m，否则回退到网络直接深度；
-- 这些默认值来自首轮模型的分桶诊断，必须通过重新训练和相同3DOP验证集确认收益。
+园区距离策略进一步规定：
 
-否则回退到 `dep` 直接深度头。训练时SGBM无效目标的offset mask为0，不参与offset损失。
+| 距离 | 双目损失权重 | 推理用途 |
+|---|---:|---|
+| 0～15m | 2.0 | 核心3D检测与近距风险感知 |
+| 15～30m | 1.5 | 核心3D检测与规划提前量 |
+| 30～50m | 0.5 | 粗深度、跟踪和远距预警 |
+| 50m以上 | 0.0 | 不训练双目修正，只保留2D观察 |
 
-## 4. 代码入口
+gate不再使用普通BCE。v3采用Focal调制，并按两种候选深度的误差差增加`regret_weight`；误差差小于0.2m的模糊样本不参与gate分类。50m以上强制gate为0，但KITTI离线评估仍保留直接深度预测，避免人为删预测影响对比。
 
-- 双目数据集：`src/lib/datasets/sample/stereo_ddd.py`
-- DLA双目模型：`src/lib/models/networks/stereo_pose_dla_dcn.py`
-- Offset独立模块：`src/lib/models/networks/stereo_depth_offset.py`
-- 损失与训练器：`src/lib/trains/stereo_ddd.py`
-- 模型结构打印：`src/tools/print_stereo_model.py`
-- 训练脚本：`experiments/stereo_ddd_3dop.sh`
+## 5. 代码入口
 
-打印完整模型结构：
+- 模型：`src/lib/models/networks/stereo_pose_dla_dcn.py`
+- 深度融合：`src/lib/models/networks/stereo_depth_offset.py`
+- 损失：`src/lib/trains/stereo_ddd.py`
+- 正式训练：`experiments/stereo_ddd_project2000.sh`
+- 结构打印：`src/tools/print_stereo_model.py`
 
 ```bash
-/opt/miniconda3/envs/clip/bin/python src/tools/print_stereo_model.py \
-  > exp/stereo_stage2/model_structure.txt
+/opt/miniconda3/envs/clip/bin/python src/tools/print_stereo_model.py
 ```
 
-## 5. 已验证内容
+## 6. 当前验证状态
 
-- 8个输出头前向成功，形状全部符合设计；
-- 真实KITTI双目样本可生成SGBM深度、质量图和offset标签；
-- 一个真实样本完成总损失计算和反向传播；
-- offset卷积层获得非零梯度；
-- `src/main.py stereo_ddd` 已完成1迭代训练冒烟测试。
-
-当前没有训练完成的 `stereo_ddd` 权重。现有 `ctdet_coco_dla_2x.pth` 只能初始化/运行2D检测，不是该模型的最终3D权重。
+- 9个输出头前向成功，形状正确；
+- 5项相关单元测试通过；
+- 本地真实KITTI样本完成一次前向、总损失和反向传播；
+- 旧模型可加载DLA和常规检测头，新增模块重新初始化；
+- 尚未完成`project2000`正式训练，因此暂时不能宣称3D AP得到提升。

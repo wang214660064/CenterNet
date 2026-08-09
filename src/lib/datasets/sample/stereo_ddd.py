@@ -116,7 +116,13 @@ class StereoDddDataset(DddDataset):
       if measured is None:
         continue
       sgbm_depth, _ = measured
-      offset_target[k, 0] = float(ann['depth']) - sgbm_depth
+      raw_offset = float(ann['depth']) - sgbm_depth
+      # 监督目标与推理阶段使用相同限幅，避免学习推理时不会采用的大修正。
+      offset_limit = max(
+          self.opt.depth_offset_min_limit,
+          min(self.opt.depth_offset_max_abs,
+              sgbm_depth * self.opt.depth_offset_max_ratio))
+      offset_target[k, 0] = np.clip(raw_offset, -offset_limit, offset_limit)
       offset_mask[k] = 1
 
     ret['depth_offset'] = offset_target

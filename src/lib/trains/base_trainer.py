@@ -101,6 +101,8 @@ class BaseTrainer(object):
           'rot': '{:.3f}'.format(avg_loss_stats.get('rot_loss', AverageMeter()).avg),
           'offset': '{:.3f}'.format(
               avg_loss_stats.get('depth_offset_loss', AverageMeter()).avg),
+          'gate': '{:.3f}'.format(
+              avg_loss_stats.get('depth_gate_loss', AverageMeter()).avg),
           'objs': instances,
           'size': '{}x{}'.format(batch['input'].shape[-2], batch['input'].shape[-1]),
       }

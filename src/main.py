@@ -25,6 +25,19 @@ def update_early_stopping(current_metric, best_metric, min_delta,
   return best_metric, validations_without_improvement + 1, False
 
 
+def configure_stereo_only_training(model):
+  """冻结常规网络，只保留双目融合、offset和不确定性分支。"""
+  prefixes = (
+      'stereo_quality_encoder.', 'stereo_coarse_fusion.', 'stereo_fusion.',
+      'stereo_attention.', 'target_context.', 'depth_offset.',
+      'depth_log_variance.', 'depth_gate.')
+  for name, parameter in model.named_parameters():
+    parameter.requires_grad = name.startswith(prefixes)
+  if hasattr(model, 'train_stereo_only'):
+    model.train_stereo_only = True
+  return [parameter for parameter in model.parameters() if parameter.requires_grad]
+
+
 def main(opt):
   torch.manual_seed(opt.seed)
   torch.backends.cudnn.benchmark = not opt.not_cuda_benchmark and not opt.test
@@ -50,6 +63,15 @@ def main(opt):
   if opt.load_model != '':
     model, optimizer, start_epoch = load_model(
       model, opt.load_model, optimizer, opt.resume, opt.lr, opt.lr_step)
+  if opt.train_stereo_only:
+    if opt.resume:
+      raise ValueError('train_stereo_only不能与resume同时使用')
+    trainable_parameters = configure_stereo_only_training(model)
+    optimizer = torch.optim.Adam(trainable_parameters, opt.lr)
+    trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
+    total_count = sum(parameter.numel() for parameter in model.parameters())
+    print('仅训练双目offset分支：{:,}/{:,}个参数'.format(
+        trainable_count, total_count))
 
   Trainer = train_factory[opt.task]
   trainer = Trainer(opt, model, optimizer)

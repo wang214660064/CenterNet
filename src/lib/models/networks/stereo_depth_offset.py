@@ -64,12 +64,67 @@ def stereo_offset_loss(predicted_offset, predicted_log_variance,
   return (loss * valid_mask).sum() / valid_count
 
 
+def stereo_huber_uncertainty_loss(predicted_offset, predicted_log_variance,
+                                  target_offset, valid_mask, delta=1.0,
+                                  calibration_weight=0.05):
+  """Huber回归加小权重不确定性校准，避免方差项主导offset学习。"""
+  valid_mask = valid_mask.to(dtype=predicted_offset.dtype)
+  valid_count = torch.clamp(valid_mask.sum(), min=1.0)
+  huber = F.smooth_l1_loss(
+      predicted_offset, target_offset, reduction='none', beta=delta)
+  absolute_error = torch.abs(predicted_offset.detach() - target_offset)
+  target_log_variance = torch.log(torch.clamp(
+      absolute_error * absolute_error, min=1e-2, max=1e2))
+  calibration = F.smooth_l1_loss(
+      torch.clamp(predicted_log_variance, min=-5.0, max=5.0),
+      target_log_variance, reduction='none', beta=1.0)
+  loss = huber + calibration_weight * calibration
+  return (loss * valid_mask).sum() / valid_count
+
+
+def campus_distance_weights(depth, near_distance=15.0, core_distance=30.0,
+                            warning_distance=50.0, near_weight=2.0,
+                            core_weight=1.5, warning_weight=0.5,
+                            beyond_weight=0.0):
+  """园区距离权重：优先0～30m，保留30～50m，忽略更远3D监督。"""
+  return torch.where(
+      depth < near_distance, torch.full_like(depth, near_weight),
+      torch.where(
+          depth < core_distance, torch.full_like(depth, core_weight),
+          torch.where(
+              depth < warning_distance,
+              torch.full_like(depth, warning_weight),
+              torch.full_like(depth, beyond_weight))))
+
+
+def regret_focal_gate_loss(logits, stereo_error, direct_error, valid_mask,
+                           distance_weight, gamma=2.0, alpha=0.5,
+                           ambiguity_margin=0.2, max_regret=4.0):
+  """门控Focal损失：忽略模糊样本，并强化代价高的错误选择。"""
+  stereo_error = stereo_error.detach()
+  direct_error = direct_error.detach()
+  target = (stereo_error < direct_error).to(dtype=logits.dtype)
+  error_gap = torch.abs(stereo_error - direct_error)
+  clear_choice = (error_gap >= ambiguity_margin).to(dtype=logits.dtype)
+  regret_weight = 1.0 + torch.clamp(error_gap, max=max_regret)
+  weight = valid_mask.to(dtype=logits.dtype) * distance_weight * clear_choice
+  weight = weight * regret_weight
+
+  bce = F.binary_cross_entropy_with_logits(logits, target, reduction='none')
+  probability = torch.sigmoid(logits)
+  probability_target = target * probability + (1.0 - target) * (1.0 - probability)
+  alpha_target = target * alpha + (1.0 - target) * (1.0 - alpha)
+  focal = alpha_target * torch.pow(1.0 - probability_target, gamma) * bce
+  return (focal * weight).sum() / torch.clamp(weight.sum(), min=1.0)
+
+
 def fuse_stereo_depth(direct_depth, sgbm_depth, quality, predicted_offset,
-                      predicted_log_variance, min_quality=0.5,
+                      predicted_log_variance, learned_gate_logits=None,
+                      min_quality=0.5,
                       far_distance=30.0, far_min_quality=0.8,
                       max_uncertainty=10.0, far_max_uncertainty=3.0,
                       max_offset_abs=8.0, max_offset_ratio=0.15,
-                      min_offset_limit=2.0):
+                      min_offset_limit=2.0, fusion_max_depth=50.0):
   """按距离、质量和不确定性安全地融合SGBM offset。"""
   uncertainty = torch.exp(0.5 * torch.clamp(
       predicted_log_variance, min=-5.0, max=5.0))
@@ -85,6 +140,16 @@ def fuse_stereo_depth(direct_depth, sgbm_depth, quality, predicted_offset,
   allowed_uncertainty = torch.where(
       far, torch.full_like(uncertainty, far_max_uncertainty),
       torch.full_like(uncertainty, max_uncertainty))
-  use_stereo = ((sgbm_depth > 0) & (quality >= required_quality) &
-                (corrected_depth > 0) & (uncertainty <= allowed_uncertainty))
-  return torch.where(use_stereo, corrected_depth, direct_depth), use_stereo, safe_offset
+  safe_to_use = ((sgbm_depth > 0) & (sgbm_depth < fusion_max_depth) &
+                 (quality >= required_quality) &
+                 (corrected_depth > 0) &
+                 (uncertainty <= allowed_uncertainty))
+  if learned_gate_logits is None:
+    # 兼容旧模型和原有单元测试。
+    return (torch.where(safe_to_use, corrected_depth, direct_depth),
+            safe_to_use, safe_offset)
+  learned_gate = torch.sigmoid(learned_gate_logits)
+  effective_gate = learned_gate * safe_to_use.to(dtype=learned_gate.dtype)
+  final_depth = (effective_gate * corrected_depth +
+                 (1.0 - effective_gate) * direct_depth)
+  return final_depth, effective_gate, safe_offset

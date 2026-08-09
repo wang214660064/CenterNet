@@ -10,6 +10,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src" / "lib"))
 
 from models.networks.stereo_depth_offset import (  # noqa: E402
     StereoDepthOffsetHead,
+    stereo_huber_uncertainty_loss,
     stereo_offset_loss,
 )
 
@@ -33,6 +34,19 @@ class StereoDepthOffsetHeadTest(unittest.TestCase):
     mask = torch.tensor([[[[True, False]]]])
     loss = stereo_offset_loss(prediction, log_variance, target, mask)
     self.assertAlmostEqual(loss.item(), 2.0)
+
+  def test_huber_uncertainty_loss_is_non_negative_and_has_gradient(self):
+    prediction = torch.tensor([[[[0.0, 10.0]]]], requires_grad=True)
+    log_variance = torch.zeros_like(prediction, requires_grad=True)
+    target = torch.tensor([[[[1.0, 0.0]]]])
+    mask = torch.tensor([[[[True, False]]]])
+    loss = stereo_huber_uncertainty_loss(
+        prediction, log_variance, target, mask, delta=1.0,
+        calibration_weight=0.05)
+    self.assertGreaterEqual(loss.item(), 0.0)
+    loss.backward()
+    self.assertIsNotNone(prediction.grad)
+    self.assertIsNotNone(log_variance.grad)
 
 
 if __name__ == '__main__':

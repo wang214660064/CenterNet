@@ -163,6 +163,27 @@ def measure_detection(bbox, disparity, depth, params):
   }
 
 
+def campus_distance_policy(distance_m, valid_depth_ratio=0.0, depth_mad_m=0.0):
+  """将测距结果转换成园区业务分区，不把远距离粗深度当成可靠控制量。"""
+  if distance_m < 15.0:
+    zone, recommended_use = 'near_core_3d', 'core_3d'
+  elif distance_m < 30.0:
+    zone, recommended_use = 'core_3d', 'core_3d'
+  elif distance_m < 50.0:
+    zone, recommended_use = 'far_warning', 'tracking_warning'
+  else:
+    zone, recommended_use = 'beyond_3d_range', '2d_only'
+  quality_ok = valid_depth_ratio >= 0.5 and depth_mad_m <= 2.0
+  return {
+      'distance_zone': zone,
+      'recommended_use': recommended_use,
+      'depth_reliable': bool(distance_m < 30.0 and quality_ok),
+      'use_for_tracking': True,
+      # 教学原型不能作为唯一紧急制动输入。
+      'use_for_emergency_braking': False,
+  }
+
+
 def load_centernet(model_path, gpus):
   sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'lib'))
   from opts import opts
@@ -190,7 +211,15 @@ def draw_results(image, detections, warning_depth):
     x1, y1, x2, y2 = [int(value) for value in detection['bbox']]
     measured = detection.get('stereo')
     warning = measured is not None and measured['distance_m'] <= warning_depth
-    color = (0, 0, 255) if warning else (40, 210, 40)
+    zone = measured.get('distance_zone') if measured else None
+    if warning:
+      color = (0, 0, 255)
+    elif zone == 'far_warning':
+      color = (0, 165, 255)
+    elif zone == 'beyond_3d_range':
+      color = (150, 150, 150)
+    else:
+      color = (40, 210, 40)
     if measured:
       label = '{} {:.2f}  {:.1f}m'.format(
           detection['class_name'], detection['score'], measured['distance_m'])
@@ -244,6 +273,11 @@ def main():
   for detection in detections:
     detection['stereo'] = measure_detection(
         detection['bbox'], disparity, depth, params)
+    if detection['stereo'] is not None:
+      measured = detection['stereo']
+      measured.update(campus_distance_policy(
+          measured['distance_m'], measured['valid_depth_ratio'],
+          measured['depth_mad_m']))
 
   output_dir = os.path.abspath(args.output_dir)
   os.makedirs(output_dir, exist_ok=True)

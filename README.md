@@ -12,7 +12,9 @@
 - [X] 在 `000008` 上完成 CenterNet + SGBM 端到端运行；
 - [X] 使用 KITTI 3DOP 验证集完成SGBM深度基线统计；
 - [X] 生成SGBM深度、质量图和目标级offset监督；
-- [X] 实现可训练的 `stereo_ddd` 模型、8个输出头和联合损失；
+- [X] 实现可训练的 `stereo_ddd` 模型、9个输出头和联合损失；
+- [X] 完成Stereo Fusion Gate v2：双尺度融合、SGBM质量编码、目标感知聚合、ECA注意力和可学习深度门控；
+- [X] 完成园区Gate v3：0～30m重点训练、30～50m远距预警、50m以上仅保留2D用途；gate采用代价加权Focal监督；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
 - [x] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40（最佳权重第10轮，Car Moderate 3D AP_R40 30.88）。
 
@@ -34,6 +36,7 @@ python src/stereo_kitti_demo.py --image-id 000008
 每次改造与验证结论记录在[开发日志](readme/PROJECT_LOG_CN.md)。
 第二阶段设计和评测结果见 [MonoFlex + SGBM 路线](readme/MONOFLEX_SGBM_STAGE2_CN.md)。
 完整网络结构见 [Stereo DDD模型结构](readme/MODEL_ARCHITECTURE_CN.md)。
+GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IMPROVEMENTS_CN.md)。
 
 打印模型结构：
 
@@ -52,7 +55,7 @@ python src/stereo_kitti_demo.py --image-id 000008
 
 程序默认优先使用CUDA；没有CUDA时自动回退CPU，不需要填写GPU参数。CPU仅适合冒烟验证；`--gpus -1`只用于需要强制CPU的调试场景。
 
-训练时终端会显示类似 Ultralytics 的动态进度，包括 epoch、显存、总损失、检测/深度/尺寸/朝向/offset 损失、当前批次目标数和输入尺寸。每轮结束后，`exp/stereo_ddd/<exp_id>/` 自动生成：
+训练时终端会显示类似 Ultralytics 的动态进度，包括 epoch、显存、总损失、检测/深度/尺寸/朝向/offset/gate 损失、当前批次目标数和输入尺寸。每轮结束后，`exp/stereo_ddd/<exp_id>/` 自动生成：
 
 - `results.csv`：逐轮结构化指标，可用表格软件继续分析；
 - `results.png`：总损失、深度、二维检测和三维属性四组曲线；
@@ -65,6 +68,17 @@ python src/stereo_kitti_demo.py --image-id 000008
 正式训练脚本默认每5轮验证一次；若连续2次验证损失未改善至少0.01，训练会自动早停并保留 `model_best.pth`，避免训练集继续下降而验证集恶化。
 
 当前训练脚本已启用距离感知的SGBM门控：质量图只由局部有效视差比例生成；offset采用绝对值和深度比例双重限幅；30m以上使用更严格的质量与不确定性条件。正式脚本会加载旧 `model_best.pth` 作为初始化，但使用新的 `exp_id`、较低学习率并从第1轮重新训练；不能添加 `--resume` 继承旧优化器和轮次。
+
+本项目正式使用固定的 `project2000` 数据集，其中1600帧用于训练、400帧用于验证：
+
+```bash
+python src/tools/create_kitti_project_split.py
+bash experiments/stereo_ddd_project2000.sh
+```
+
+后续训练、验证、AP和距离分桶均以 `project2000` 为准，原3DOP划分仅作为历史资料保留，不再作为项目默认评测口径。
+
+划分与训练是两个独立步骤。先运行划分命令并检查 `data/kitti/ImageSets_project2000/train.txt`、`val.txt` 和 `summary.json`；确认后再单独执行训练脚本。左右图不会复制到数据集目录，清单中的帧号仍引用原始 `training/image_2` 和 `training/image_3`。
 
 使用 `src/main.py ... --test --load_model <权重>` 完整推理验证集后，会生成KITTI格式预测、PR统计文件和 `kitti_ap_r40.json`，其中包含Car、Pedestrian、Cyclist的2D、AOS、BEV和3D AP_R40。
 
