@@ -16,6 +16,7 @@
 - [X] 完成Stereo Fusion Gate v2：双尺度融合、SGBM质量编码、目标感知聚合、ECA注意力和可学习深度门控；
 - [X] 完成园区Gate v3：0～30m重点训练、30～50m远距预警、50m以上仅保留2D用途；gate采用代价加权Focal监督；
 - [X] 完成Geometry Offset v4：尺寸/朝向几何先验、SGBM质量门控与学习残差；
+- [X] 完成Geometry Offset v4的400帧正式评估：Car Moderate 3D AP_R40为30.36，优于v3的28.92；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
 - [x] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40（最佳权重第10轮，Car Moderate 3D AP_R40 30.88）。
@@ -72,6 +73,12 @@ GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IM
 当前训练脚本已启用距离感知的SGBM门控：质量图只由局部有效视差比例生成；offset采用绝对值和深度比例双重限幅；30m以上使用更严格的质量与不确定性条件。正式脚本会加载旧 `model_best.pth` 作为初始化，但使用新的 `exp_id`、较低学习率并从第1轮重新训练；不能添加 `--resume` 继承旧优化器和轮次。
 
 Geometry Offset v4将SGBM可见表面深度修正拆成“尺寸/朝向几何先验 + 学习残差”。几何先验乘以SGBM局部质量和可学习门控。尺寸头与朝向头使用`detach()`单向供给，不会被offset损失带偏。
+
+Geometry Offset v4验证通过后，下一阶段只小学习率解冻`dep/dim/rot`，继续冻结DLA骨干与`hm/wh/reg`二维头。双目分支使用`2e-6`，3D属性头使用`5e-7`，避免1600帧训练集破坏已稳定的二维检测能力：
+
+```bash
+bash experiments/stereo_ddd_project2000_3d_heads.sh
+```
 
 本项目正式使用固定的 `project2000` 数据集，其中1600帧用于训练、400帧用于验证：
 

@@ -39,6 +39,36 @@ def configure_stereo_only_training(model):
   return [parameter for parameter in model.parameters() if parameter.requires_grad]
 
 
+def configure_stereo_3d_head_training(model, stereo_lr, ddd_head_lr):
+  """冻结骨干和2D头，双目分支与3D属性头使用不同学习率。"""
+  stereo_prefixes = (
+      'stereo_quality_encoder.', 'stereo_coarse_fusion.', 'stereo_fusion.',
+      'stereo_attention.', 'target_context.', 'depth_offset.',
+      'depth_geometry_gate.', 'depth_log_variance.', 'depth_gate.')
+  ddd_prefixes = ('dep.', 'dim.', 'rot.')
+  stereo_parameters, ddd_parameters = [], []
+  for name, parameter in model.named_parameters():
+    parameter.requires_grad = False
+    if name.startswith(stereo_prefixes):
+      parameter.requires_grad = True
+      stereo_parameters.append(parameter)
+    elif name.startswith(ddd_prefixes):
+      parameter.requires_grad = True
+      ddd_parameters.append(parameter)
+  if not stereo_parameters or not ddd_parameters:
+    raise ValueError('没有找到双目分支或dep/dim/rot参数')
+  if hasattr(model, 'train_stereo_only'):
+    model.train_stereo_only = True
+  if hasattr(model, 'train_stereo_3d_heads'):
+    model.train_stereo_3d_heads = True
+  return [
+      {'params': stereo_parameters, 'lr': stereo_lr,
+       'initial_lr': stereo_lr, 'name': 'stereo'},
+      {'params': ddd_parameters, 'lr': ddd_head_lr,
+       'initial_lr': ddd_head_lr, 'name': 'ddd_heads'},
+  ]
+
+
 def main(opt):
   torch.manual_seed(opt.seed)
   torch.backends.cudnn.benchmark = not opt.not_cuda_benchmark and not opt.test
@@ -64,6 +94,8 @@ def main(opt):
   if opt.load_model != '':
     model, optimizer, start_epoch = load_model(
       model, opt.load_model, optimizer, opt.resume, opt.lr, opt.lr_step)
+  if opt.train_stereo_only and opt.train_stereo_3d_heads:
+    raise ValueError('train_stereo_only与train_stereo_3d_heads不能同时使用')
   if opt.train_stereo_only:
     if opt.resume:
       raise ValueError('train_stereo_only不能与resume同时使用')
@@ -73,6 +105,19 @@ def main(opt):
     total_count = sum(parameter.numel() for parameter in model.parameters())
     print('仅训练双目offset分支：{:,}/{:,}个参数'.format(
         trainable_count, total_count))
+  elif opt.train_stereo_3d_heads:
+    if opt.resume:
+      raise ValueError('train_stereo_3d_heads不能与resume同时使用')
+    parameter_groups = configure_stereo_3d_head_training(
+        model, opt.lr, opt.ddd_head_lr)
+    optimizer = torch.optim.Adam(parameter_groups)
+    stereo_count = sum(p.numel() for p in parameter_groups[0]['params'])
+    ddd_count = sum(p.numel() for p in parameter_groups[1]['params'])
+    total_count = sum(parameter.numel() for parameter in model.parameters())
+    print('训练双目分支与3D属性头：双目{:,}，dep/dim/rot {:,}，总计{:,}/{:,}个参数'.format(
+        stereo_count, ddd_count, stereo_count + ddd_count, total_count))
+    print('分组学习率：双目{:.2e}，dep/dim/rot {:.2e}'.format(
+        opt.lr, opt.ddd_head_lr))
 
   Trainer = train_factory[opt.task]
   trainer = Trainer(opt, model, optimizer)
@@ -145,10 +190,11 @@ def main(opt):
     if epoch in opt.lr_step:
       save_model(os.path.join(opt.save_dir, 'model_{}.pth'.format(epoch)), 
                  epoch, model, optimizer)
-      lr = opt.lr * (0.1 ** (opt.lr_step.index(epoch) + 1))
-      print('Drop LR to', lr)
+      factor = 0.1 ** (opt.lr_step.index(epoch) + 1)
       for param_group in optimizer.param_groups:
-          param_group['lr'] = lr
+          initial_lr = param_group.get('initial_lr', opt.lr)
+          param_group['lr'] = initial_lr * factor
+      print('Drop LR to', [group['lr'] for group in optimizer.param_groups])
   logger.close()
 
 if __name__ == '__main__':
