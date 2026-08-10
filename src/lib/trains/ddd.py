@@ -24,8 +24,12 @@ class DddLoss(torch.nn.Module):
   def forward(self, outputs, batch):
     opt = self.opt
 
-    hm_loss, dep_loss, rot_loss, dim_loss = 0, 0, 0, 0
-    wh_loss, off_loss = 0, 0
+    # 所有统计量保持Tensor类型，即使某个损失权重为0，进度条和日志也能
+    # 安全调用mean()/item()。
+    zero = outputs[0]['hm'].sum() * 0.0
+    hm_loss, dep_loss, rot_loss, dim_loss = (
+        zero.clone(), zero.clone(), zero.clone(), zero.clone())
+    wh_loss, off_loss = zero.clone(), zero.clone()
     for s in range(opt.num_stacks):
       output = outputs[s]
       output['hm'] = _sigmoid(output['hm'])

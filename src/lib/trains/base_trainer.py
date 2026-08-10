@@ -98,6 +98,8 @@ class BaseTrainer(object):
           'hm': '{:.3f}'.format(avg_loss_stats.get('hm_loss', AverageMeter()).avg),
           'dep': '{:.3f}'.format(avg_loss_stats.get('dep_loss', AverageMeter()).avg),
           'dim': '{:.3f}'.format(avg_loss_stats.get('dim_loss', AverageMeter()).avg),
+          'dima': '{:.3f}'.format(
+              avg_loss_stats.get('dimension_aware_loss', AverageMeter()).avg),
           'rot': '{:.3f}'.format(avg_loss_stats.get('rot_loss', AverageMeter()).avg),
           'offset': '{:.3f}'.format(
               avg_loss_stats.get('depth_offset_loss', AverageMeter()).avg),

@@ -165,7 +165,7 @@ def evolution_overview():
       (1160, 480, 'Geometry v4', ['尺寸/朝向几何先验', 'Moderate 3D AP 30.36'], 'geometry'),
       (790, 480, 'Projected v5', ['独立3D投影中心头', 'Moderate 3D AP 42.24'], 'network'),
       (420, 480, 'Projected v6a', ['像素 + 相机XY损失', 'Moderate 3D AP 42.29'], 'loss'),
-      (50, 480, 'Projected v7', ['尺度归一化重叠损失', '当前待训练版本'], 'loss'),
+      (50, 480, 'Projected v7', ['尺度归一化重叠损失', 'Moderate 3D AP 41.99'], 'loss'),
   ]
   body = []
   for x, y, title, lines, kind in cards:
@@ -175,8 +175,8 @@ def evolution_overview():
       arrow(1110, 245, 1150, 245),
       path_arrow([(1320, 335), (1320, 465)]),
       arrow(1160, 565, 1120, 565), arrow(790, 565, 750, 565),
-      node(50, 480, 300, 170, '未进入主线的消融',
-           ['LightStereo：近中距误差更大', '全解冻3D头：AP下降', '保留结果，不沿用结构'],
+      node(50, 690, 320, 100, '未进入主线的消融',
+           ['LightStereo、3D全解冻、Dimension v6b', '均需独立评估，不替代主线'],
            'frozen', badge='旁支'),
       path_arrow([(420, 650), (360, 650)], '对照实验', dashed=True),
   ])
@@ -458,8 +458,42 @@ def projected_v7_iou():
       '比纯米制XY平均误差更接近3D IoU：小车辆对同样偏移更敏感，大车辆容忍度更高',
       'v7', body,
       ['v7从v5最佳权重开始，保留像素损失并加入0.2权重的可导重叠代理损失。',
-       '当前状态：代码完成待训练，正式结论以project2000的400帧A/B评估为准。'],
+       '400帧评估低于v5，尺度重叠代理暂未带来稳定收益。'],
       '08_projected_center_v7_iou.svg')
+
+
+def dimension_v6b():
+  body = ''.join([
+      node(45, 170, 300, 190, 'v5完整模型',
+           ['骨干、2D、深度、中心、朝向', '全部冻结并保持eval', '不改变推理解码'],
+           'frozen', '冻结'),
+      node(45, 500, 300, 180, 'KITTI尺寸真值',
+           ['目标尺寸：[height, width, length]', '每一维独立作为监督', '只在训练阶段读取'],
+           'input'),
+      node(420, 250, 335, 260, 'dim尺寸头',
+           ['输出3通道：h / w / l', '加载v5已有权重', '只训练该头4个参数张量', '不增加模型体量'],
+           'network', '唯一可训练'),
+      node(830, 220, 350, 310, 'Dimension-aware Smooth L1',
+           ['relative_error = (pred − gt) / gt', '高度、宽度、长度按相对误差',
+            '避免车长数值更大而主导损失', 'beta = 0.1', '沿用园区距离权重'],
+           'loss', 'v6b新增'),
+      node(1250, 265, 300, 255, '训练边界',
+           ['原始dim L1权重设为0', '只启用相对尺寸损失',
+            '深度/中心/朝向无梯度', '训练后对比尺寸MAE与3D AP'],
+           'output'),
+      arrow(345, 265, 410, 345), arrow(345, 590, 410, 430),
+      arrow(755, 380, 820, 380), arrow(1180, 380, 1240, 380),
+      path_arrow([(830, 485), (790, 485), (790, 750), (20, 750),
+                  (20, 265), (55, 265)],
+                 '梯度只回dim头', dashed=True, color='#DC2626'),
+  ])
+  base_svg(
+      'Dimension v6b：让三维尺寸按相对误差公平学习',
+      '只训练已有dim头，车长、高度和宽度不再因为绝对米制不同而获得不均衡的损失权重',
+      'v6b', body,
+      ['v6b从v5最佳权重开始，只更新尺寸头；不影响检测、深度、投影中心或朝向。',
+       '当前状态：代码完成待训练，结果以project2000的400帧A/B评估为准。'],
+      '09_dimension_v6b.svg')
 
 
 def main():
@@ -473,7 +507,8 @@ def main():
   projected_v5()
   projected_v6a()
   projected_v7_iou()
-  print('已生成9张SVG：{}'.format(OUTPUT_DIR))
+  dimension_v6b()
+  print('已生成10张SVG：{}'.format(OUTPUT_DIR))
 
 
 if __name__ == '__main__':

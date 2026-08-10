@@ -20,7 +20,8 @@
 - [X] 完成3D中心投影改造：保留2D框中心，新增独立`proj_center_offset`头；
 - [X] 完成Projected Center v5训练及400帧评估：Car Moderate 3D AP_R40为42.24，v4为30.36；
 - [X] 完成Projected Center v6a训练及400帧评估：新增相机坐标XY一致性损失，但Car Moderate 3D AP_R40仅由42.24变为42.29，未形成稳定收益；
-- [X] 完成Projected Center v7代码：关闭v6a XY损失，加入只训练投影中心头的尺度归一化重叠代理损失；
+- [X] 完成Projected Center v7训练及400帧评估：尺度归一化重叠代理未优于v5，Car Moderate 3D AP_R40降至41.99；
+- [X] 完成Dimension v6b代码：只训练尺寸头，使用按真实尺寸归一化的Smooth L1；
 - [X] 完成3D属性头小学习率解冻消融：Car Moderate 3D AP_R40降至29.44，继续以冻结3D头的Geometry Offset v4作为最佳基线；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
@@ -113,6 +114,14 @@ v7从v5最佳权重重新开始，保留像素投影中心损失、关闭v6a米�
 
 ```bash
 bash experiments/stereo_ddd_projected_center_v7_iou.sh
+```
+
+v7正式评估已完成：Car Moderate BEV/3D AP_R40为`45.86/41.99`，低于v5的`45.87/42.24`；平均中心XY误差由`0.28344m`变为`0.28391m`，平均3D IoU由`0.53321`变为`0.53276`。0～15m的`IoU≥0.7`比例由`37.43%`升至`38.50%`，但15～50m均未改善，当前不采用v7权重。
+
+Dimension v6b从v5最佳权重开始，只训练已有`dim`尺寸头。训练关闭原始米制`dim_loss`，改用按真实高度、宽度、长度归一化的相对Smooth L1，避免车长主导损失；其他头和骨干均冻结。训练入口：
+
+```bash
+bash experiments/stereo_ddd_dimension_v6b.sh
 ```
 
 后续训练、验证、AP和距离分桶均以 `project2000` 为准，原3DOP划分仅作为历史资料保留，不再作为项目默认评测口径。

@@ -180,6 +180,12 @@ class opts(object):
                              help='loss weight for depth.')
     self.parser.add_argument('--dim_weight', type=float, default=1,
                              help='loss weight for 3d bounding box size.')
+    self.parser.add_argument('--dimension_aware_weight', type=float,
+                             default=0.0,
+                             help='按真实尺寸归一化的3D尺寸Smooth L1损失权重')
+    self.parser.add_argument('--dimension_aware_beta', type=float,
+                             default=0.1,
+                             help='相对尺寸Smooth L1转折点')
     self.parser.add_argument('--rot_weight', type=float, default=1,
                              help='loss weight for orientation.')
     self.parser.add_argument('--peak_thresh', type=float, default=0.2)
@@ -261,6 +267,8 @@ class opts(object):
                              help='冻结骨干和常规检测头，只训练双目offset分支')
     self.parser.add_argument('--train_projected_center_only', action='store_true',
                              help='只训练3D中心投影偏移头，用于单变量A/B')
+    self.parser.add_argument('--train_dimension_only', action='store_true',
+                             help='只训练3D尺寸头，用于Dimension v6b消融')
     
     # task
     # ctdet

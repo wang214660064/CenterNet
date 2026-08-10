@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000"
   viewBox="0 0 1600 1000" role="img" aria-labelledby="08_projected_center_v7_iou-svg-title 08_projected_center_v7_iou-svg-desc">
 <title id="08_projected_center_v7_iou-svg-title">Projected Center v7：用车辆尺度归一化中心重叠误差</title>
-<desc id="08_projected_center_v7_iou-svg-desc">v7从v5最佳权重开始，保留像素损失并加入0.2权重的可导重叠代理损失。；当前状态：代码完成待训练，正式结论以project2000的400帧A/B评估为准。</desc>
+<desc id="08_projected_center_v7_iou-svg-desc">v7从v5最佳权重开始，保留像素损失并加入0.2权重的可导重叠代理损失。；400帧评估低于v5，尺度重叠代理暂未带来稳定收益。</desc>
 <defs>
   <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6"
           orient="auto" markerUnits="strokeWidth">
@@ -26,6 +26,6 @@
 <rect x="48" y="800" width="1504" height="98" rx="16" fill="#F8FAFC"
       stroke="#CBD5E1" stroke-width="2"/>
 <text x="74" y="832" font-size="17" font-weight="700" fill="#2563EB" text-anchor="start"><tspan x="74" dy="0">初学者一句话</tspan></text>
-<text x="74" y="864" font-size="18" font-weight="600" fill="#0F172A" text-anchor="start"><tspan x="74" dy="0">v7从v5最佳权重开始，保留像素损失并加入0.2权重的可导重叠代理损失。</tspan><tspan x="74" dy="25">当前状态：代码完成待训练，正式结论以project2000的400帧A/B评估为准。</tspan></text>
+<text x="74" y="864" font-size="18" font-weight="600" fill="#0F172A" text-anchor="start"><tspan x="74" dy="0">v7从v5最佳权重开始，保留像素损失并加入0.2权重的可导重叠代理损失。</tspan><tspan x="74" dy="25">400帧评估低于v5，尺度重叠代理暂未带来稳定收益。</tspan></text>
 <rect x="60" y="925" width="26" height="18" rx="4" fill="#EAF2FF" stroke="#2563EB" stroke-width="2"/><text x="96" y="940" font-size="15" font-weight="400" fill="#475569" text-anchor="start"><tspan x="96" dy="0">输入/数据</tspan></text><rect x="250" y="925" width="26" height="18" rx="4" fill="#FFF4E5" stroke="#D97706" stroke-width="2"/><text x="286" y="940" font-size="15" font-weight="400" fill="#475569" text-anchor="start"><tspan x="286" dy="0">神经网络</tspan></text><rect x="440" y="925" width="26" height="18" rx="4" fill="#EAF8EF" stroke="#15803D" stroke-width="2"/><text x="476" y="940" font-size="15" font-weight="400" fill="#475569" text-anchor="start"><tspan x="476" dy="0">传统几何</tspan></text><rect x="630" y="925" width="26" height="18" rx="4" fill="#F2ECFF" stroke="#7C3AED" stroke-width="2"/><text x="666" y="940" font-size="15" font-weight="400" fill="#475569" text-anchor="start"><tspan x="666" dy="0">融合模块</tspan></text><rect x="820" y="925" width="26" height="18" rx="4" fill="#E8F7FA" stroke="#0E7490" stroke-width="2"/><text x="856" y="940" font-size="15" font-weight="400" fill="#475569" text-anchor="start"><tspan x="856" dy="0">输出</tspan></text><rect x="1010" y="925" width="26" height="18" rx="4" fill="#FFF0F0" stroke="#DC2626" stroke-width="2"/><text x="1046" y="940" font-size="15" font-weight="400" fill="#475569" text-anchor="start"><tspan x="1046" dy="0">训练损失</tspan></text><rect x="1200" y="925" width="26" height="18" rx="4" fill="#F1F5F9" stroke="#64748B" stroke-width="2"/><text x="1236" y="940" font-size="15" font-weight="400" fill="#475569" text-anchor="start"><tspan x="1236" dy="0">冻结模块</tspan></text>
 </svg>

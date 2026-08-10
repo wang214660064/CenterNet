@@ -56,6 +56,17 @@ def projected_center_iou_surrogate_loss(
           torch.clamp(scalar_weight.sum(), min=1.0))
 
 
+def dimension_aware_l1_loss(predicted_dim, target_dim, weight, beta=0.1):
+  """按真实尺寸归一化的Smooth L1，避免车长主导尺寸监督。"""
+  scale = torch.clamp(torch.abs(target_dim), min=0.1)
+  relative_error = (predicted_dim - target_dim) / scale
+  error = F.smooth_l1_loss(
+      relative_error, torch.zeros_like(relative_error), reduction='none',
+      beta=beta)
+  return ((error * weight).sum() /
+          torch.clamp(weight.sum() * 3.0, min=1.0))
+
+
 class StereoDddLoss(DddLoss):
   def forward(self, outputs, batch):
     base_loss, stats = super(StereoDddLoss, self).forward(outputs, batch)
@@ -65,6 +76,7 @@ class StereoDddLoss(DddLoss):
     proj_center_loss = 0
     proj_center_xy_loss = 0
     proj_center_iou_loss = 0
+    dimension_aware_loss = base_loss * 0.0
     geometry_offset_mean = 0
     residual_offset_mean = 0
     for output in outputs:
@@ -100,6 +112,14 @@ class StereoDddLoss(DddLoss):
           beyond_weight=self.opt.campus_beyond_weight)
       weighted_mask = mask * distance_weight
       valid_count = torch.clamp(weighted_mask.sum(), min=1.0)
+      if self.opt.dimension_aware_weight > 0:
+        predicted_dim = _transpose_and_gather_feat(output['dim'], batch['ind'])
+        dimension_mask = batch['reg_mask'].unsqueeze(2).to(
+            dtype=predicted_dim.dtype)
+        dimension_weight = dimension_mask * distance_weight
+        dimension_aware_loss += dimension_aware_l1_loss(
+            predicted_dim, batch['dim'].to(dtype=predicted_dim.dtype),
+            dimension_weight, beta=self.opt.dimension_aware_beta) / len(outputs)
       predicted_proj_center = _transpose_and_gather_feat(
           output['proj_center_offset'], batch['ind'])
       proj_center_mask = batch['proj_center_mask'].unsqueeze(2).to(
@@ -230,7 +250,8 @@ class StereoDddLoss(DddLoss):
             self.opt.depth_fusion_weight * fusion_depth_loss +
             self.opt.proj_center_weight * proj_center_loss +
             self.opt.proj_center_xy_weight * proj_center_xy_loss +
-            self.opt.proj_center_iou_weight * proj_center_iou_loss)
+            self.opt.proj_center_iou_weight * proj_center_iou_loss +
+            self.opt.dimension_aware_weight * dimension_aware_loss)
     stats['loss'] = loss
     stats['depth_offset_loss'] = offset_loss
     stats['depth_gate_loss'] = gate_loss
@@ -238,6 +259,7 @@ class StereoDddLoss(DddLoss):
     stats['proj_center_loss'] = proj_center_loss
     stats['proj_center_xy_loss'] = proj_center_xy_loss
     stats['proj_center_iou_loss'] = proj_center_iou_loss
+    stats['dimension_aware_loss'] = dimension_aware_loss
     stats['geometry_offset_mean'] = geometry_offset_mean.detach()
     stats['residual_offset_mean'] = residual_offset_mean.detach()
     return loss, stats
@@ -250,5 +272,6 @@ class StereoDddTrainer(DddTrainer):
         'wh_loss', 'off_loss', 'depth_offset_loss', 'depth_gate_loss',
         'depth_fusion_loss', 'proj_center_loss', 'geometry_offset_mean',
         'proj_center_xy_loss', 'proj_center_iou_loss',
+        'dimension_aware_loss',
         'residual_offset_mean']
     return loss_states, StereoDddLoss(opt)

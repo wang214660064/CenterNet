@@ -49,6 +49,17 @@ def configure_projected_center_only_training(model):
   return [parameter for parameter in model.parameters() if parameter.requires_grad]
 
 
+def configure_dimension_only_training(model):
+  """冻结其余网络，只训练3D尺寸头，用于Dimension v6b消融。"""
+  for name, parameter in model.named_parameters():
+    parameter.requires_grad = name.startswith('dim.')
+  if hasattr(model, 'train_stereo_only'):
+    # 复用冻结模式，避免骨干BatchNorm在小数据集上继续漂移。
+    model.train_stereo_only = True
+    model.train_dimension_only = True
+  return [parameter for parameter in model.parameters() if parameter.requires_grad]
+
+
 def main(opt):
   torch.manual_seed(opt.seed)
   torch.backends.cudnn.benchmark = not opt.not_cuda_benchmark and not opt.test
@@ -74,8 +85,10 @@ def main(opt):
   if opt.load_model != '':
     model, optimizer, start_epoch = load_model(
       model, opt.load_model, optimizer, opt.resume, opt.lr, opt.lr_step)
-  if opt.train_stereo_only and opt.train_projected_center_only:
-    raise ValueError('两种冻结训练模式不能同时启用')
+  training_modes = [opt.train_stereo_only, opt.train_projected_center_only,
+                    opt.train_dimension_only]
+  if sum(training_modes) > 1:
+    raise ValueError('冻结训练模式不能同时启用')
   if opt.train_stereo_only:
     if opt.resume:
       raise ValueError('train_stereo_only不能与resume同时使用')
@@ -95,6 +108,17 @@ def main(opt):
     trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
     total_count = sum(parameter.numel() for parameter in model.parameters())
     print('仅训练3D中心投影头：{:,}/{:,}个参数'.format(
+        trainable_count, total_count))
+  if opt.train_dimension_only:
+    if opt.resume:
+      raise ValueError('train_dimension_only不能与resume同时使用')
+    if opt.load_model == '':
+      raise ValueError('只训练尺寸头时必须通过load_model加载已训练基线')
+    trainable_parameters = configure_dimension_only_training(model)
+    optimizer = torch.optim.Adam(trainable_parameters, opt.lr)
+    trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
+    total_count = sum(parameter.numel() for parameter in model.parameters())
+    print('仅训练3D尺寸头：{:,}/{:,}个参数'.format(
         trainable_count, total_count))
 
   Trainer = train_factory[opt.task]

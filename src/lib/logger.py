@@ -144,10 +144,12 @@ class Logger(object):
                 'val/depth_gate_loss', 'val/depth_fusion_loss']),
         ('2D detection', ['train/hm_loss', 'train/wh_loss', 'train/off_loss',
                    'val/hm_loss', 'val/wh_loss', 'val/off_loss']),
-        ('3D attributes', ['train/dim_loss', 'train/rot_loss',
+        ('3D attributes', ['train/dim_loss', 'train/dimension_aware_loss',
+                   'train/rot_loss',
                    'train/proj_center_loss', 'train/proj_center_xy_loss',
                    'train/proj_center_iou_loss',
-                   'val/dim_loss', 'val/rot_loss', 'val/proj_center_loss',
+                   'val/dim_loss', 'val/dimension_aware_loss',
+                   'val/rot_loss', 'val/proj_center_loss',
                    'val/proj_center_xy_loss', 'val/proj_center_iou_loss']),
     ]
     epochs = [int(float(item['epoch'])) for item in self.history]

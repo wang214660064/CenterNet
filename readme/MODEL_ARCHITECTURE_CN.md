@@ -56,7 +56,7 @@
 | `wh` | 2 | 2D框宽高 | L1 |
 | `reg` | 2 | 中心亚像素偏移 | L1 |
 | `dep` | 1 | 网络直接深度 | L1 |
-| `dim` | 3 | 3D框尺寸 | L1 |
+| `dim` | 3 | 3D框尺寸 | L1 + 可选相对尺寸Smooth L1 |
 | `rot` | 8 | MultiBin朝向 | BinRot Loss |
 | `depth_offset` | 1 | SGBM表面到3D框中心的深度修正 | Masked Huber |
 | `depth_log_variance` | 1 | offset不确定性 | 校准损失 |
@@ -112,6 +112,19 @@ L_v7 = L_pixel + 0.2 × (L_overlap + 0.1 × L_huber_fallback)
 
 `L_overlap`模拟中心偏移造成的3D框重叠下降；当预测与真值完全错开时，`L_huber_fallback`继续提供梯度。尺寸和朝向只生成训练监督，模型仍只更新`proj_center_offset`头，推理解码与v5完全相同。
 
+v7在`project2000`400帧评估中的Car Moderate BEV/3D AP_R40为`45.86/41.99`，低于v5的`45.87/42.24`。它只在0～15m的`IoU≥0.7`比例有小幅增加，15～50m没有改善；因此该代理损失作为已验证未采用的消融保留，当前最佳权重仍为v5。
+
+### Dimension v6b
+
+v6b只更新已有`dim`头，不增加参数。原始米制L1会使长度维度的绝对误差通常大于高度和宽度；v6b改为相对Smooth L1：
+
+```text
+relative_error = (pred_dim - gt_dim) / max(|gt_dim|, 0.1)
+L_dim_v6b = SmoothL1(relative_error, beta=0.1)
+```
+
+训练脚本关闭原始`dim_weight`，只启用`dimension_aware_weight=1.0`，并冻结深度、中心、朝向、2D检测头和骨干网络。该分支尚未训练，必须使用同一400帧比较尺寸MAE、平均3D IoU和Car 3D AP_R40。
+
 ## 4. 门控监督与安全边界
 
 ```text
@@ -162,6 +175,7 @@ depth_offset = quality × learned_geometry_gate × geometry_offset
 - 投影中心A/B：`experiments/stereo_ddd_projected_center_v5.sh`
 - 投影中心XY一致性：`experiments/stereo_ddd_projected_center_v6a.sh`
 - 投影中心尺度重叠代理：`experiments/stereo_ddd_projected_center_v7_iou.sh`
+- 相对尺寸头消融：`experiments/stereo_ddd_dimension_v6b.sh`
 - 结构打印：`src/tools/print_stereo_model.py`
 
 ```bash

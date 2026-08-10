@@ -22,7 +22,8 @@
 | 5 | Geometry Offset v4 | 尺寸/朝向几何先验 + 学习残差 | 已完成并评估 |
 | 6 | Projected Center v5 | 分离2D框中心和3D中心投影点 | 已完成并评估 |
 | 7 | Projected Center v6a | 增加相机XY一致性损失 | 已评估，未显著优于v5 |
-| 8 | Projected Center v7 | 尺度归一化中心重叠代理损失 | 代码完成，待训练 |
+| 8 | Projected Center v7 | 尺度归一化中心重叠代理损失 | 已评估，未优于v5 |
+| 9 | Dimension v6b | 只训练尺寸头 + 相对尺寸Smooth L1 | 代码完成，待训练 |
 
 ## 0. 演进总览
 
@@ -59,6 +60,10 @@
 ## 8. Projected Center v7
 
 ![Projected Center v7](08_projected_center_v7_iou.svg)
+
+## 9. Dimension v6b
+
+![Dimension v6b](09_dimension_v6b.svg)
 
 ## 重新生成
 
