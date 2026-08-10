@@ -10,7 +10,8 @@ sys.path.insert(0, str(LIB))
 from models.decode import ddd_decode
 from utils.ddd_utils import ddd2locrot, project_3d_center_to_image
 from utils.post_process import ddd_post_process_3d
-from trains.stereo_ddd import projected_center_to_camera_xy
+from trains.stereo_ddd import (
+    projected_center_iou_surrogate_loss, projected_center_to_camera_xy)
 
 
 def test_projected_center_round_trip_recovers_bottom_center_location():
@@ -44,6 +45,39 @@ def test_projected_center_camera_xy_uses_calibration_and_detached_depth():
   camera_xy.sum().backward()
   assert center.grad is not None
   assert depth.grad is None
+
+
+def test_projected_center_iou_surrogate_is_zero_at_exact_center():
+  center = torch.tensor([[[1.0, 2.0]]])
+  extent = torch.tensor([[[2.0, 1.5]]])
+  weight = torch.ones((1, 1, 1))
+
+  loss = projected_center_iou_surrogate_loss(
+      center, center, extent, weight)
+  torch.testing.assert_close(loss, torch.tensor(0.0))
+
+
+def test_projected_center_iou_surrogate_respects_object_scale():
+  predicted = torch.tensor([[[0.2, 0.0]]])
+  target = torch.zeros_like(predicted)
+  weight = torch.ones((1, 1, 1))
+
+  small_loss = projected_center_iou_surrogate_loss(
+      predicted, target, torch.tensor([[[1.0, 1.0]]]), weight)
+  large_loss = projected_center_iou_surrogate_loss(
+      predicted, target, torch.tensor([[[4.0, 4.0]]]), weight)
+  assert small_loss > large_loss
+
+
+def test_projected_center_iou_surrogate_keeps_gradient_when_no_overlap():
+  predicted = torch.tensor([[[2.0, 0.0]]], requires_grad=True)
+  loss = projected_center_iou_surrogate_loss(
+      predicted, torch.zeros_like(predicted),
+      torch.ones_like(predicted), torch.ones((1, 1, 1)))
+
+  loss.backward()
+  assert predicted.grad is not None
+  assert predicted.grad[0, 0, 0].abs() > 0
 
 
 def test_ddd_decode_keeps_2d_center_and_applies_projected_center_offset():

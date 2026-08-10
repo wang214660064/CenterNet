@@ -61,7 +61,7 @@
 | `depth_offset` | 1 | SGBM表面到3D框中心的深度修正 | Masked Huber |
 | `depth_log_variance` | 1 | offset不确定性 | 校准损失 |
 | `depth_gate` | 1 | 两种深度的融合权重 | BCE + 融合深度Huber |
-| `proj_center_offset` | 2 | 2D框中心到3D几何中心投影点的偏移 | 像素Smooth L1 + 相机XY一致性 |
+| `proj_center_offset` | 2 | 2D框中心到3D几何中心投影点的偏移 | 像素Smooth L1 + 可选XY/重叠代理损失 |
 
 模型总参数量为`22,825,540`。新投影中心头为`148,226`个参数。使用`--train_projected_center_only`时冻结v4全部已验证分支，只更新这个新头。
 
@@ -99,6 +99,18 @@ L_center = L_pixel + 1.0 × SmoothL1(pred_camera_xy, gt_camera_xy)
 ```
 
 `XY`损失的Smooth L1转折点为`0.2m`，并沿用园区距离权重。`z_final`显式执行`detach()`，训练模式仍为`--train_projected_center_only`，因此只有`proj_center_offset`头更新。
+
+### Projected Center v7
+
+v6a优化绝对米制XY误差，但同样`0.2m`偏移对小车和大车的3D IoU影响不同。v7根据车辆尺寸和朝向计算相机X方向有效宽度，并用车辆高度归一化纵向误差：
+
+```text
+extent_x = |cos(rotation_y)| × width + |sin(rotation_y)| × length
+error_normalized = |pred_camera_xy - gt_camera_xy| / [extent_x, height]
+L_v7 = L_pixel + 0.2 × (L_overlap + 0.1 × L_huber_fallback)
+```
+
+`L_overlap`模拟中心偏移造成的3D框重叠下降；当预测与真值完全错开时，`L_huber_fallback`继续提供梯度。尺寸和朝向只生成训练监督，模型仍只更新`proj_center_offset`头，推理解码与v5完全相同。
 
 ## 4. 门控监督与安全边界
 
@@ -149,6 +161,7 @@ depth_offset = quality × learned_geometry_gate × geometry_offset
 - 正式训练：`experiments/stereo_ddd_project2000.sh`
 - 投影中心A/B：`experiments/stereo_ddd_projected_center_v5.sh`
 - 投影中心XY一致性：`experiments/stereo_ddd_projected_center_v6a.sh`
+- 投影中心尺度重叠代理：`experiments/stereo_ddd_projected_center_v7_iou.sh`
 - 结构打印：`src/tools/print_stereo_model.py`
 
 ```bash
@@ -157,10 +170,11 @@ depth_offset = quality × learned_geometry_gate × geometry_offset
 
 ## 6. 当前验证状态
 
-- 27项项目测试通过，10个输出头前向成功，`proj_center_offset`形状为`[B,2,96,320]`；
+- 30项项目测试通过，10个输出头前向成功，`proj_center_offset`形状为`[B,2,96,320]`；
 - 新头最后一层零初始化，旧v4权重保持原始中心行为；
 - 本地真实KITTI样本完成标签生成、前向、总损失和反向传播；
 - Geometry Offset v4和Projected Center v5均已完成`project2000`正式评估；
 - v5 Car Moderate BEV/3D AP_R40为`45.87/42.24`，v4为`43.44/30.36`；
 - v5不改变2D AP、深度和尺寸误差，改善来自中心`x/y`恢复，并主要集中在0～30m。
-- v6a代码已完成真实KITTI样本反向传播；尚未在服务器正式训练和评估，不能提前宣称AP提升。
+- v6a已完成30轮训练和`project2000` 400帧评估；Car Moderate BEV/3D AP_R40为`45.85/42.29`，与v5的`45.87/42.24`基本持平。
+- v6a中心XY MAE仅由v5的`0.28344m`降至`0.28336m`，平均3D IoU略降，未形成可重复的实质收益；当前最佳模型仍为v5。

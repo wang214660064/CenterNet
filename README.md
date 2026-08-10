@@ -19,7 +19,8 @@
 - [X] 完成Geometry Offset v4的400帧正式评估：Car Moderate 3D AP_R40为30.36，优于v3的28.92；
 - [X] 完成3D中心投影改造：保留2D框中心，新增独立`proj_center_offset`头；
 - [X] 完成Projected Center v5训练及400帧评估：Car Moderate 3D AP_R40为42.24，v4为30.36；
-- [X] 完成Projected Center v6a代码：新增相机坐标XY一致性损失，深度分支保持冻结；
+- [X] 完成Projected Center v6a训练及400帧评估：新增相机坐标XY一致性损失，但Car Moderate 3D AP_R40仅由42.24变为42.29，未形成稳定收益；
+- [X] 完成Projected Center v7代码：关闭v6a XY损失，加入只训练投影中心头的尺度归一化重叠代理损失；
 - [X] 完成3D属性头小学习率解冻消融：Car Moderate 3D AP_R40降至29.44，继续以冻结3D头的Geometry Offset v4作为最佳基线；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
@@ -43,6 +44,7 @@ python src/stereo_kitti_demo.py --image-id 000008
 每次改造与验证结论记录在[开发日志](readme/PROJECT_LOG_CN.md)。
 第二阶段设计和评测结果见 [MonoFlex + SGBM 路线](readme/MONOFLEX_SGBM_STAGE2_CN.md)。
 完整网络结构见 [Stereo DDD模型结构](readme/MODEL_ARCHITECTURE_CN.md)。
+各版本的初学者SVG图解见 [项目版本架构图](readme/architecture/README_CN.md)。
 GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IMPROVEMENTS_CN.md)。
 
 打印模型结构：
@@ -62,7 +64,7 @@ GitHub开源方案筛选见 [双目3D改进路线调研](readme/GITHUB_STEREO_IM
 
 程序默认优先使用CUDA；没有CUDA时自动回退CPU，不需要填写GPU参数。CPU仅适合冒烟验证；`--gpus -1`只用于需要强制CPU的调试场景。
 
-训练时终端会显示类似 Ultralytics 的动态进度，包括 epoch、显存、总损失、检测/深度/尺寸/朝向/offset/gate损失、几何offset均值`geo`、学习残差均值`res`、当前批次目标数和输入尺寸。每轮结束后，`exp/stereo_ddd/<exp_id>/` 自动生成：
+训练时终端会显示类似 Ultralytics 的动态进度，包括 epoch、显存、总损失、检测/深度/尺寸/朝向/offset/gate损失、投影中心像素损失`proj`、米制XY损失`xy`、尺度重叠代理损失`piou`、几何offset均值`geo`、学习残差均值`res`、当前批次目标数和输入尺寸。每轮结束后，`exp/stereo_ddd/<exp_id>/` 自动生成：
 
 - `results.csv`：逐轮结构化指标，可用表格软件继续分析；
 - `results.png`：总损失、深度、二维检测和三维属性四组曲线；
@@ -104,6 +106,14 @@ bash experiments/stereo_ddd_projected_center_v6a.sh
 ```
 
 v6a保留v5的像素偏移Smooth L1，并新增相机坐标`x/y`一致性损失。最终融合深度参与反投影前执行`detach()`，不会修改深度、gate、尺寸、朝向或骨干网络。终端中的`proj`表示像素偏移损失，`xy`表示相机坐标一致性损失，单位为米。
+
+v6a正式评估已完成：Car Moderate BEV/3D AP_R40为`45.85/42.29`，v5为`45.87/42.24`；中心XY MAE仅由`0.28344m`降至`0.28336m`，平均3D IoU由`0.53321`变为`0.53310`，`IoU≥0.7`比例由`26.07%`降至`25.80%`。变化量接近统计波动，当前不以v6a替换v5最佳模型。
+
+v7从v5最佳权重重新开始，保留像素投影中心损失、关闭v6a米制XY损失，并新增`0.2`权重的尺度归一化重叠代理损失。该损失根据车辆高度、宽度、长度和朝向衡量中心误差，因此小目标对同样的偏移受到更大惩罚；完全不重叠时使用归一化Huber项保持梯度。训练入口：
+
+```bash
+bash experiments/stereo_ddd_projected_center_v7_iou.sh
+```
 
 后续训练、验证、AP和距离分桶均以 `project2000` 为准，原3DOP划分仅作为历史资料保留，不再作为项目默认评测口径。
 

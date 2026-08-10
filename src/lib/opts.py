@@ -203,6 +203,11 @@ class opts(object):
                              help='投影中心相机坐标XY一致性损失权重')
     self.parser.add_argument('--proj_center_xy_beta', type=float, default=0.2,
                              help='相机坐标XY Smooth L1转折点，单位m')
+    self.parser.add_argument('--proj_center_iou_weight', type=float,
+                             default=0.0,
+                             help='尺度归一化3D中心重叠代理损失权重')
+    self.parser.add_argument('--proj_center_iou_beta', type=float, default=0.1,
+                             help='中心完全错开时归一化Huber损失转折点')
     self.parser.add_argument('--proj_center_max_offset', type=float, default=64.0,
                              help='投影中心最大偏移，单位为输出特征格')
     self.parser.add_argument('--depth_gate_focal_gamma', type=float, default=2.0,

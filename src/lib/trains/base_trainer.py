@@ -107,6 +107,8 @@ class BaseTrainer(object):
               avg_loss_stats.get('proj_center_loss', AverageMeter()).avg),
           'xy': '{:.3f}m'.format(
               avg_loss_stats.get('proj_center_xy_loss', AverageMeter()).avg),
+          'piou': '{:.3f}'.format(
+              avg_loss_stats.get('proj_center_iou_loss', AverageMeter()).avg),
           'geo': '{:.2f}m'.format(
               avg_loss_stats.get('geometry_offset_mean', AverageMeter()).avg),
           'res': '{:.2f}m'.format(

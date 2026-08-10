@@ -81,6 +81,7 @@ class DddDataset(data.Dataset):
     proj_center_mask = np.zeros((self.max_objs), dtype=np.uint8)
     proj_center_base = np.zeros((self.max_objs, 2), dtype=np.float32)
     proj_center_camera_xy = np.zeros((self.max_objs, 2), dtype=np.float32)
+    proj_center_extent_xy = np.zeros((self.max_objs, 2), dtype=np.float32)
 
     ann_ids = self.coco.getAnnIds(imgIds=[img_id])
     anns = self.coco.loadAnns(ids=ann_ids)
@@ -128,6 +129,14 @@ class DddDataset(data.Dataset):
             # KITTI location是底面中心；这里保存3D框几何中心的相机坐标。
             proj_center_camera_xy[k] = [
                 ann['location'][0], ann['location'][1] - ann['dim'][0] / 2.0]
+            # KITTI尺寸顺序为[h,w,l]。车辆绕相机Y轴旋转后，其相机X方向
+            # 占用范围约为|cos(ry)|*w + |sin(ry)|*l。
+            rotation_y = float(ann.get('rotation_y', 0.0))
+            height, width_3d, length_3d = ann['dim']
+            proj_center_extent_xy[k] = [
+                abs(np.cos(rotation_y)) * width_3d +
+                abs(np.sin(rotation_y)) * length_3d,
+                height]
             projected_center_image = project_3d_center_to_image(
                 ann['location'], ann['dim'], calib)
             projected_center = affine_transform(
@@ -187,6 +196,7 @@ class DddDataset(data.Dataset):
       ret['proj_center_mask'] = proj_center_mask
       ret['proj_center_base'] = proj_center_base
       ret['proj_center_camera_xy'] = proj_center_camera_xy
+      ret['proj_center_extent_xy'] = proj_center_extent_xy
     if self.opt.debug > 0 or not ('train' in self.split):
       empty_det_size = 16 + (2 if self.opt.reg_bbox else 0) + \
                        (2 if self.opt.task == 'stereo_ddd' else 0)

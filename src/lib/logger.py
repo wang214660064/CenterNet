@@ -146,8 +146,9 @@ class Logger(object):
                    'val/hm_loss', 'val/wh_loss', 'val/off_loss']),
         ('3D attributes', ['train/dim_loss', 'train/rot_loss',
                    'train/proj_center_loss', 'train/proj_center_xy_loss',
+                   'train/proj_center_iou_loss',
                    'val/dim_loss', 'val/rot_loss', 'val/proj_center_loss',
-                   'val/proj_center_xy_loss']),
+                   'val/proj_center_xy_loss', 'val/proj_center_iou_loss']),
     ]
     epochs = [int(float(item['epoch'])) for item in self.history]
     fig, axes = plt.subplots(2, 2, figsize=(13, 8), constrained_layout=True)
