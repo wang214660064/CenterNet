@@ -12,6 +12,26 @@ from models.networks.stereo_depth_offset import (
 from .ddd import DddLoss, DddTrainer
 
 
+def projected_center_to_camera_xy(center_output, depth, inverse_affine, calib):
+  """将输出特征图上的投影中心反投影为相机坐标x/y。"""
+  ones = torch.ones_like(center_output[..., :1])
+  homogeneous_center = torch.cat([center_output, ones], dim=2)
+  center_image = torch.bmm(
+      homogeneous_center, inverse_affine.transpose(1, 2))
+
+  p00 = calib[:, None, 0, 0]
+  p02 = calib[:, None, 0, 2]
+  p03 = calib[:, None, 0, 3]
+  p11 = calib[:, None, 1, 1]
+  p12 = calib[:, None, 1, 2]
+  p13 = calib[:, None, 1, 3]
+  p23 = calib[:, None, 2, 3]
+  z = depth[..., 0] - p23
+  x = (center_image[..., 0] * depth[..., 0] - p03 - p02 * z) / p00
+  y = (center_image[..., 1] * depth[..., 0] - p13 - p12 * z) / p11
+  return torch.stack([x, y], dim=2)
+
+
 class StereoDddLoss(DddLoss):
   def forward(self, outputs, batch):
     base_loss, stats = super(StereoDddLoss, self).forward(outputs, batch)
@@ -19,6 +39,7 @@ class StereoDddLoss(DddLoss):
     gate_loss = 0
     fusion_depth_loss = 0
     proj_center_loss = 0
+    proj_center_xy_loss = 0
     geometry_offset_mean = 0
     residual_offset_mean = 0
     for output in outputs:
@@ -107,6 +128,30 @@ class StereoDddLoss(DddLoss):
           batch['sgbm_quality'], batch['ind'])
       corrected_depth = sgbm_depth + safe_offset
 
+      # v6a只让梯度更新投影中心头。最终深度显式detach，避免中心损失
+      # 反向改变已经验证过的SGBM融合、直接深度和gate分支。
+      predicted_center_output = (
+          batch['proj_center_base'] + predicted_proj_center)
+      predicted_camera_xy = projected_center_to_camera_xy(
+          predicted_center_output, final_depth.detach(),
+          batch['proj_center_inverse_affine'].to(
+              dtype=predicted_proj_center.dtype),
+          batch['proj_center_calib'].to(dtype=predicted_proj_center.dtype))
+      target_camera_xy = batch['proj_center_camera_xy'].to(
+          dtype=predicted_proj_center.dtype)
+      finite_xy = (torch.isfinite(predicted_camera_xy).all(dim=2, keepdim=True) &
+                   torch.isfinite(target_camera_xy).all(dim=2, keepdim=True) &
+                   (final_depth.detach() > 0.1)).to(
+                       dtype=predicted_proj_center.dtype)
+      xy_weight = proj_center_weight * finite_xy
+      xy_error = F.smooth_l1_loss(
+          predicted_camera_xy, target_camera_xy, reduction='none',
+          beta=self.opt.proj_center_xy_beta)
+      proj_center_xy_loss += (
+          (xy_error * xy_weight).sum() /
+          torch.clamp(xy_weight.sum() * 2.0, min=1.0) /
+          len(outputs))
+
       far = sgbm_depth >= self.opt.stereo_far_distance
       required_quality = torch.where(
           far, torch.full_like(sgbm_quality, self.opt.stereo_far_min_quality),
@@ -145,12 +190,14 @@ class StereoDddLoss(DddLoss):
     loss = (base_loss + self.opt.depth_offset_weight * offset_loss +
             self.opt.depth_gate_weight * gate_loss +
             self.opt.depth_fusion_weight * fusion_depth_loss +
-            self.opt.proj_center_weight * proj_center_loss)
+            self.opt.proj_center_weight * proj_center_loss +
+            self.opt.proj_center_xy_weight * proj_center_xy_loss)
     stats['loss'] = loss
     stats['depth_offset_loss'] = offset_loss
     stats['depth_gate_loss'] = gate_loss
     stats['depth_fusion_loss'] = fusion_depth_loss
     stats['proj_center_loss'] = proj_center_loss
+    stats['proj_center_xy_loss'] = proj_center_xy_loss
     stats['geometry_offset_mean'] = geometry_offset_mean.detach()
     stats['residual_offset_mean'] = residual_offset_mean.detach()
     return loss, stats
@@ -162,5 +209,5 @@ class StereoDddTrainer(DddTrainer):
         'loss', 'hm_loss', 'dep_loss', 'dim_loss', 'rot_loss',
         'wh_loss', 'off_loss', 'depth_offset_loss', 'depth_gate_loss',
         'depth_fusion_loss', 'proj_center_loss', 'geometry_offset_mean',
-        'residual_offset_mean']
+        'proj_center_xy_loss', 'residual_offset_mean']
     return loss_states, StereoDddLoss(opt)

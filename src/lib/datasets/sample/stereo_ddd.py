@@ -85,6 +85,10 @@ class StereoDddDataset(DddDataset):
       raise RuntimeError('无法读取双目图像: {} / {}'.format(left_path, right_path))
 
     p2 = np.asarray(image_info['calib'], dtype=np.float32)
+    # v6a训练专用：把输出特征坐标还原到原始图像，再通过P2反投影。
+    ret['proj_center_inverse_affine'] = cv2.invertAffineTransform(
+        transform).astype(np.float32)
+    ret['proj_center_calib'] = p2
     p3 = self._read_p3(image_id)
     disparity = self._sgbm(left, right)
     quality_map = local_valid_quality(

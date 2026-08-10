@@ -10,6 +10,7 @@ sys.path.insert(0, str(LIB))
 from models.decode import ddd_decode
 from utils.ddd_utils import ddd2locrot, project_3d_center_to_image
 from utils.post_process import ddd_post_process_3d
+from trains.stereo_ddd import projected_center_to_camera_xy
 
 
 def test_projected_center_round_trip_recovers_bottom_center_location():
@@ -25,6 +26,24 @@ def test_projected_center_round_trip_recovers_bottom_center_location():
       center_2d, 0.0, dimensions, location[2], calib)
 
   np.testing.assert_allclose(recovered, location, atol=1e-5)
+
+
+def test_projected_center_camera_xy_uses_calibration_and_detached_depth():
+  center = torch.tensor([[[60.0, 35.0]]], requires_grad=True)
+  depth = torch.tensor([[[20.0]]], requires_grad=True)
+  inverse_affine = torch.tensor([
+      [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
+  calib = torch.tensor([[
+      [100.0, 0.0, 50.0, 0.0],
+      [0.0, 100.0, 40.0, 0.0],
+      [0.0, 0.0, 1.0, 0.0]]])
+
+  camera_xy = projected_center_to_camera_xy(
+      center, depth.detach(), inverse_affine, calib)
+  torch.testing.assert_close(camera_xy, torch.tensor([[[2.0, -1.0]]]))
+  camera_xy.sum().backward()
+  assert center.grad is not None
+  assert depth.grad is None
 
 
 def test_ddd_decode_keeps_2d_center_and_applies_projected_center_offset():

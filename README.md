@@ -18,7 +18,8 @@
 - [X] 完成Geometry Offset v4：尺寸/朝向几何先验、SGBM质量门控与学习残差；
 - [X] 完成Geometry Offset v4的400帧正式评估：Car Moderate 3D AP_R40为30.36，优于v3的28.92；
 - [X] 完成3D中心投影改造：保留2D框中心，新增独立`proj_center_offset`头；
-- [ ] 待完成Projected Center v5训练及400帧AP/误差分解；
+- [X] 完成Projected Center v5训练及400帧评估：Car Moderate 3D AP_R40为42.24，v4为30.36；
+- [X] 完成Projected Center v6a代码：新增相机坐标XY一致性损失，深度分支保持冻结；
 - [X] 完成3D属性头小学习率解冻消融：Car Moderate 3D AP_R40降至29.44，继续以冻结3D头的Geometry Offset v4作为最佳基线；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
@@ -79,6 +80,8 @@ Geometry Offset v4将SGBM可见表面深度修正拆成“尺寸/朝向几何先
 
 Projected Center v5不替换现有2D中心热力图，而是预测“2D框中心到3D几何中心投影点”的偏移。恢复相机坐标和`rotation_y`时使用修正后的投影中心，2D框继续使用原中心，两条路径不混用。旧v4权重加载后新头默认输出0，保持向后兼容。
 
+Projected Center v5正式评估已完成：Car Moderate BEV/3D AP_R40由v4的`43.44/30.36`提升到`45.87/42.24`；2D AP、深度和尺寸误差保持不变。改善主要集中在0～30m，其中0～15m中心`x/y`平面误差由0.361m降至0.247m。
+
 3D属性头小学习率解冻消融已经完成：平均深度、尺寸和朝向误差略有下降，但Car Moderate BEV/3D AP_R40分别由43.44/30.36降至42.32/29.44。项目主线已回退到冻结常规头的Geometry Offset v4，解冻入口不再保留。
 
 本项目正式使用固定的 `project2000` 数据集，其中1600帧用于训练、400帧用于验证：
@@ -93,6 +96,14 @@ bash experiments/stereo_ddd_project2000.sh
 ```bash
 bash experiments/stereo_ddd_projected_center_v5.sh
 ```
+
+从v5最佳权重继续训练v6a，只更新投影中心头：
+
+```bash
+bash experiments/stereo_ddd_projected_center_v6a.sh
+```
+
+v6a保留v5的像素偏移Smooth L1，并新增相机坐标`x/y`一致性损失。最终融合深度参与反投影前执行`detach()`，不会修改深度、gate、尺寸、朝向或骨干网络。终端中的`proj`表示像素偏移损失，`xy`表示相机坐标一致性损失，单位为米。
 
 后续训练、验证、AP和距离分桶均以 `project2000` 为准，原3DOP划分仅作为历史资料保留，不再作为项目默认评测口径。
 

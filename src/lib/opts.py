@@ -199,6 +199,10 @@ class opts(object):
                              help='融合后深度Huber损失权重')
     self.parser.add_argument('--proj_center_weight', type=float, default=1.0,
                              help='3D中心投影偏移Smooth L1损失权重')
+    self.parser.add_argument('--proj_center_xy_weight', type=float, default=0.0,
+                             help='投影中心相机坐标XY一致性损失权重')
+    self.parser.add_argument('--proj_center_xy_beta', type=float, default=0.2,
+                             help='相机坐标XY Smooth L1转折点，单位m')
     self.parser.add_argument('--proj_center_max_offset', type=float, default=64.0,
                              help='投影中心最大偏移，单位为输出特征格')
     self.parser.add_argument('--depth_gate_focal_gamma', type=float, default=2.0,

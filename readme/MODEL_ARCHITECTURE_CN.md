@@ -1,4 +1,4 @@
-# Geometry Offset v4 + Projected Center v5 模型结构
+# Geometry Offset v4 + Projected Center v6a 模型结构
 
 ## 1. 总体结构
 
@@ -61,7 +61,7 @@
 | `depth_offset` | 1 | SGBM表面到3D框中心的深度修正 | Masked Huber |
 | `depth_log_variance` | 1 | offset不确定性 | 校准损失 |
 | `depth_gate` | 1 | 两种深度的融合权重 | BCE + 融合深度Huber |
-| `proj_center_offset` | 2 | 2D框中心到3D几何中心投影点的偏移 | 距离加权Smooth L1 |
+| `proj_center_offset` | 2 | 2D框中心到3D几何中心投影点的偏移 | 像素Smooth L1 + 相机XY一致性 |
 
 模型总参数量为`22,825,540`。新投影中心头为`148,226`个参数。使用`--train_projected_center_only`时冻结v4全部已验证分支，只更新这个新头。
 
@@ -86,6 +86,19 @@ bbox_center_2d + proj_center_offset -> 3D中心投影点
 训练沿用园区距离权重：0～15m为2.0，15～30m为1.5，30～50m为0.5，50m以上不训练该3D偏移。
 
 对极端边缘车辆，真实3D中心可能远在画面外。当偏移超过64个输出特征格（原图256像素）时暂不参与该头监督，推理也做同样的向量限幅。该阈值在`project2000`中保留训练98.66%、验证98.52%的目标；剩余边缘目标需要后续Edge Fusion处理。
+
+### Projected Center v6a
+
+v6a不增加输出通道，也不改变推理解码。训练时将预测投影中心从输出特征坐标还原到原图，再结合当帧`P2`和最终融合深度反投影：
+
+```text
+center_output = bbox_center + proj_center_offset
+center_image = inverse_affine(center_output)
+pred_camera_xy = unproject(center_image, detach(z_final), P2)
+L_center = L_pixel + 1.0 × SmoothL1(pred_camera_xy, gt_camera_xy)
+```
+
+`XY`损失的Smooth L1转折点为`0.2m`，并沿用园区距离权重。`z_final`显式执行`detach()`，训练模式仍为`--train_projected_center_only`，因此只有`proj_center_offset`头更新。
 
 ## 4. 门控监督与安全边界
 
@@ -135,6 +148,7 @@ depth_offset = quality × learned_geometry_gate × geometry_offset
 - 损失：`src/lib/trains/stereo_ddd.py`
 - 正式训练：`experiments/stereo_ddd_project2000.sh`
 - 投影中心A/B：`experiments/stereo_ddd_projected_center_v5.sh`
+- 投影中心XY一致性：`experiments/stereo_ddd_projected_center_v6a.sh`
 - 结构打印：`src/tools/print_stereo_model.py`
 
 ```bash
@@ -143,7 +157,10 @@ depth_offset = quality × learned_geometry_gate × geometry_offset
 
 ## 6. 当前验证状态
 
-- 26项项目测试通过，10个输出头前向成功，`proj_center_offset`形状为`[B,2,96,320]`；
+- 27项项目测试通过，10个输出头前向成功，`proj_center_offset`形状为`[B,2,96,320]`；
 - 新头最后一层零初始化，旧v4权重保持原始中心行为；
 - 本地真实KITTI样本完成标签生成、前向、总损失和反向传播；
-- Geometry Offset v4已完成正式评估；Projected Center v5尚未训练，不预先宣称AP提升。
+- Geometry Offset v4和Projected Center v5均已完成`project2000`正式评估；
+- v5 Car Moderate BEV/3D AP_R40为`45.87/42.24`，v4为`43.44/30.36`；
+- v5不改变2D AP、深度和尺寸误差，改善来自中心`x/y`恢复，并主要集中在0～30m。
+- v6a代码已完成真实KITTI样本反向传播；尚未在服务器正式训练和评估，不能提前宣称AP提升。
