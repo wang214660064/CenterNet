@@ -55,3 +55,14 @@ def test_quality_bucket_boundaries():
   assert MODULE.quality_bucket(0.49) == '低质量<0.5'
   assert MODULE.quality_bucket(0.5) == '中质量0.5-0.8'
   assert MODULE.quality_bucket(0.8) == '高质量>=0.8'
+
+
+def test_invalid_raw_sgbm_is_not_counted_as_corrected_candidate():
+  record = {'matched': True}
+  diagnostic = {
+      'z_direct_m': 10.0, 'z_sgbm_m': 0.0, 'z_stereo_m': 2.0,
+      'z_final_m': 10.0, 'sgbm_quality': 0.0, 'effective_gate': 0.0}
+  MODULE.add_depth_diagnostics(record, diagnostic, gt_depth=9.0)
+  assert record['direct_depth_abs_error_m'] == 1.0
+  assert 'stereo_center_abs_error_m' not in record
+  assert 'candidate_oracle_abs_error_m' not in record

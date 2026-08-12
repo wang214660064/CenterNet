@@ -166,14 +166,16 @@ def add_depth_diagnostics(record, diagnostic, gt_depth):
   final = diagnostic.get('z_final_m')
   if direct is not None:
     record['direct_depth_abs_error_m'] = abs(direct - gt_depth)
-  if raw_stereo is not None and raw_stereo > 0:
+  raw_stereo_valid = raw_stereo is not None and raw_stereo > 0
+  if raw_stereo_valid:
     record['sgbm_center_abs_error_m'] = abs(raw_stereo - gt_depth)
-  if stereo is not None and stereo > 0:
+  stereo_valid = raw_stereo_valid and stereo is not None and stereo > 0
+  if stereo_valid:
     record['stereo_center_abs_error_m'] = abs(stereo - gt_depth)
   if final is not None:
     record['diagnostic_final_depth_abs_error_m'] = abs(final - gt_depth)
 
-  if direct is None or stereo is None or stereo <= 0 or final is None:
+  if direct is None or not stereo_valid or final is None:
     return
   direct_error = record['direct_depth_abs_error_m']
   stereo_error = record['stereo_center_abs_error_m']
