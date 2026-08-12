@@ -51,17 +51,6 @@ def test_configure_projected_center_only_training():
   assert sum(parameter.numel() for parameter in parameters) == 6
 
 
-def test_configure_gate_only_training():
-  model = TinyStereoModel()
-  parameters = main.configure_gate_only_training(model)
-  assert model.train_stereo_only
-  assert model.depth_gate.weight.requires_grad
-  assert not model.depth_offset.weight.requires_grad
-  assert not model.proj_center_offset.weight.requires_grad
-  assert not model.base.weight.requires_grad
-  assert sum(parameter.numel() for parameter in parameters) == 3
-
-
 def test_configure_dimension_only_training():
   model = TinyStereoModel()
   parameters = main.configure_dimension_only_training(model)

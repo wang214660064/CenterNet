@@ -1,16 +1,5 @@
 # 项目记录
 
-## 2026-08-12：Gate Calibration v8单变量改造
-
-- 根据v5固定400帧诊断，不取消Gate或Offset，不增加新网络模块；本v8只处理Gate校准；
-- 新增`--train_gate_only`，冻结v5的骨干、融合特征、Offset、不确定性、Projected Center及其他检测头，只训练`depth_gate.weight/bias`共257个参数；
-- Gate-only模式的总损失只包含`depth_gate_weight * gate_loss + depth_fusion_weight * fusion_depth_loss`，其他损失仅用于终端诊断，避免冻结分支的常数损失干扰读数；
-- 新增Gate样本聚焦权重：15～30m乘`1.5`，SGBM质量0.5～0.8乘`2.0`；两条件同时命中时乘`3.0`，同时作用于Gate Focal和融合深度损失；
-- 新训练入口为`experiments/stereo_ddd_gate_calibration_v8.sh`，从v5第26轮最佳权重初始化，使用`depth_fusion_loss`保存最佳模型；
-- 39项自动化测试通过，Python和Shell语法检查、`git diff --check`通过；
-- 使用真实KITTI project2000训练样本和v5权重完成CPU前向及反向传播；总损失为`0.000363`，只有`depth_gate.weight/bias`获得非零梯度；
-- 当前尚未正式训练、未评估AP。只有当Car Moderate 3D AP_R40高于v5的`42.23`、总体深度MAE低于`0.847m`，且中质量组不差于Direct的`1.222m`时，才将v8作为下一轮候选。
-
 ## 2026-08-12：收敛为单帧双目3D检测，补齐Gate/Offset诊断
 
 - 工作边界固定为单帧双目3D目标检测；跟踪、速度/TTC、预测、规划和控制不在本仓库优化范围内；

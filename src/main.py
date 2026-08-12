@@ -49,16 +49,6 @@ def configure_projected_center_only_training(model):
   return [parameter for parameter in model.parameters() if parameter.requires_grad]
 
 
-def configure_gate_only_training(model):
-  """冻结v5全部已验证分支，只校准最终深度Gate头。"""
-  for name, parameter in model.named_parameters():
-    parameter.requires_grad = name.startswith('depth_gate.')
-  if hasattr(model, 'train_stereo_only'):
-    # 复用冻结模式，骨干和BatchNorm保持eval。
-    model.train_stereo_only = True
-  return [parameter for parameter in model.parameters() if parameter.requires_grad]
-
-
 def configure_dimension_only_training(model):
   """冻结其余网络，只训练3D尺寸头，用于Dimension v6b消融。"""
   for name, parameter in model.named_parameters():
@@ -95,8 +85,8 @@ def main(opt):
   if opt.load_model != '':
     model, optimizer, start_epoch = load_model(
       model, opt.load_model, optimizer, opt.resume, opt.lr, opt.lr_step)
-  training_modes = [opt.train_stereo_only, opt.train_gate_only,
-                    opt.train_projected_center_only, opt.train_dimension_only]
+  training_modes = [opt.train_stereo_only, opt.train_projected_center_only,
+                    opt.train_dimension_only]
   if sum(training_modes) > 1:
     raise ValueError('冻结训练模式不能同时启用')
   if opt.train_stereo_only:
@@ -107,17 +97,6 @@ def main(opt):
     trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
     total_count = sum(parameter.numel() for parameter in model.parameters())
     print('仅训练双目offset分支：{:,}/{:,}个参数'.format(
-        trainable_count, total_count))
-  if opt.train_gate_only:
-    if opt.resume:
-      raise ValueError('train_gate_only不能与resume同时使用')
-    if opt.load_model == '':
-      raise ValueError('只训练Gate头时必须通过load_model加载已训练基线')
-    trainable_parameters = configure_gate_only_training(model)
-    optimizer = torch.optim.Adam(trainable_parameters, opt.lr)
-    trainable_count = sum(parameter.numel() for parameter in trainable_parameters)
-    total_count = sum(parameter.numel() for parameter in model.parameters())
-    print('仅校准深度Gate头：{:,}/{:,}个参数'.format(
         trainable_count, total_count))
   if opt.train_projected_center_only:
     if opt.resume:

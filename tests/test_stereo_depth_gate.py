@@ -8,8 +8,7 @@ LIB = Path(__file__).parents[1] / 'src' / 'lib'
 sys.path.insert(0, str(LIB))
 
 from models.networks.stereo_depth_offset import (
-    campus_distance_weights, fuse_stereo_depth, gate_focus_weights,
-    regret_focal_gate_loss)
+    campus_distance_weights, fuse_stereo_depth, regret_focal_gate_loss)
 
 
 def test_far_gate_and_offset_limit():
@@ -62,15 +61,6 @@ def test_campus_weights_and_beyond_range_gate():
       learned_gate_logits=torch.full_like(depth, 10.0))
   assert gate[0, 0, 0, 2] > 0.99
   assert gate[0, 0, 0, 3] == 0
-
-
-def test_gate_focus_weights_core_range_and_mid_quality():
-  depth = torch.tensor([[[10.0], [20.0], [20.0], [40.0]]])
-  quality = torch.tensor([[[0.6], [0.6], [0.9], [0.9]]])
-  weights = gate_focus_weights(
-      depth, quality, core_weight=1.5, mid_quality_weight=2.0)
-  assert torch.allclose(
-      weights, torch.tensor([[[2.0], [3.0], [1.5], [1.0]]]))
 
 
 def test_regret_focal_gate_loss_ignores_ambiguous_sample():
