@@ -8,21 +8,10 @@ import cv2
 import numpy as np
 
 from .ddd import DddDataset
-from lib.utils.stereo_augmentation import augment_stereo_pair
 from lib.utils.stereo_depth import disparity_to_depth, local_valid_quality
 
 
 class StereoDddDataset(DddDataset):
-  def _read_image(self, img_path):
-    """复用已增强的左图，避免网络输入和SGBM看到不同图像。"""
-    cached_path = getattr(self, '_stereo_left_path', None)
-    # DddDataset从images/trainval读图，SGBM从training/image_2读图；
-    # 两个路径不同，但同一帧的文件名相同。
-    if cached_path is not None and \
-        os.path.basename(cached_path) == os.path.basename(img_path):
-      return self._stereo_left_image
-    return cv2.imread(img_path)
-
   def _read_p3(self, image_id):
     calib_path = os.path.join(
         self.data_dir, 'training', 'calib', '{:06d}.txt'.format(image_id))
@@ -84,6 +73,8 @@ class StereoDddDataset(DddDataset):
             mad, float(q3 - q1))
 
   def __getitem__(self, index):
+    ret = super(StereoDddDataset, self).__getitem__(index)
+    transform = ret.pop('stereo_trans_output')
     image_id = self.images[index]
     image_info = self.coco.loadImgs(ids=[image_id])[0]
     file_name = image_info['file_name']
@@ -92,27 +83,6 @@ class StereoDddDataset(DddDataset):
     left, right = cv2.imread(left_path), cv2.imread(right_path)
     if left is None or right is None:
       raise RuntimeError('无法读取双目图像: {} / {}'.format(left_path, right_path))
-    if left.shape != right.shape:
-      raise RuntimeError('左右目图像尺寸不一致: {} / {}'.format(
-          left.shape, right.shape))
-
-    if self.split == 'train' and self.opt.stereo_photo_aug:
-      left, right, _ = augment_stereo_pair(
-          left, right,
-          shared_prob=self.opt.stereo_photo_aug_prob,
-          mismatch_prob=self.opt.stereo_camera_mismatch_prob,
-          strength=self.opt.stereo_photo_aug_strength)
-
-    # DddDataset通过_read_image复用这张左图，标注、左图和
-    # 后续SGBM深度图再经过同一个几何仿射变换。
-    self._stereo_left_path = left_path
-    self._stereo_left_image = left
-    try:
-      ret = super(StereoDddDataset, self).__getitem__(index)
-    finally:
-      del self._stereo_left_path
-      del self._stereo_left_image
-    transform = ret.pop('stereo_trans_output')
 
     p2 = np.asarray(image_info['calib'], dtype=np.float32)
     # v6a训练专用：把输出特征坐标还原到原始图像，再通过P2反投影。

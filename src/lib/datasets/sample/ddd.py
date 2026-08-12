@@ -17,14 +17,6 @@ from utils.ddd_utils import project_3d_center_to_image
 import pycocotools.coco as coco
 
 class DddDataset(data.Dataset):
-  def _read_image(self, img_path):
-    """读取左目图像。
-
-    双目数据集会重载这个入口，使网络输入与SGBM使用同一张
-    在线增强后的左图。
-    """
-    return cv2.imread(img_path)
-
   def _coco_box_to_bbox(self, box):
     bbox = np.array([box[0], box[1], box[0] + box[2], box[1] + box[3]],
                     dtype=np.float32)
@@ -37,9 +29,7 @@ class DddDataset(data.Dataset):
     img_id = self.images[index]
     img_info = self.coco.loadImgs(ids=[img_id])[0]
     img_path = os.path.join(self.img_dir, img_info['file_name'])
-    img = self._read_image(img_path)
-    if img is None:
-      raise RuntimeError('无法读取图像: {}'.format(img_path))
+    img = cv2.imread(img_path)
     if 'calib' in img_info:
       calib = np.array(img_info['calib'], dtype=np.float32)
     else:
