@@ -119,10 +119,10 @@ def distance_bucket(depth):
       return name
 
 
-def quality_bucket(quality):
+def quality_bucket(quality, sgbm_depth=None):
   if quality is None:
     return '无诊断数据'
-  if quality < 0:
+  if sgbm_depth is not None and sgbm_depth <= 0:
     return '无效SGBM'
   if quality < 0.5:
     return '低质量<0.5'
@@ -161,10 +161,13 @@ def add_depth_diagnostics(record, diagnostic, gt_depth):
     record[key] = diagnostic.get(key)
 
   direct = diagnostic.get('z_direct_m')
+  raw_stereo = diagnostic.get('z_sgbm_m')
   stereo = diagnostic.get('z_stereo_m')
   final = diagnostic.get('z_final_m')
   if direct is not None:
     record['direct_depth_abs_error_m'] = abs(direct - gt_depth)
+  if raw_stereo is not None and raw_stereo > 0:
+    record['sgbm_center_abs_error_m'] = abs(raw_stereo - gt_depth)
   if stereo is not None and stereo > 0:
     record['stereo_center_abs_error_m'] = abs(stereo - gt_depth)
   if final is not None:
@@ -174,6 +177,10 @@ def add_depth_diagnostics(record, diagnostic, gt_depth):
     return
   direct_error = record['direct_depth_abs_error_m']
   stereo_error = record['stereo_center_abs_error_m']
+  raw_stereo_error = record.get('sgbm_center_abs_error_m')
+  if raw_stereo_error is not None:
+    record['offset_depth_gain_m'] = raw_stereo_error - stereo_error
+    record['offset_improved'] = stereo_error < raw_stereo_error
   oracle_error = min(direct_error, stereo_error)
   final_error = record['diagnostic_final_depth_abs_error_m']
   record['candidate_oracle_abs_error_m'] = oracle_error
@@ -181,6 +188,11 @@ def add_depth_diagnostics(record, diagnostic, gt_depth):
   record['gate_blend_gain_m'] = oracle_error - final_error
   record['preferred_depth_candidate'] = (
       'stereo' if stereo_error < direct_error else 'direct')
+  hard_depth = (
+      stereo if diagnostic.get('effective_gate', 0.0) >= 0.5 else direct)
+  hard_error = abs(hard_depth - gt_depth)
+  record['hard_gate_depth_abs_error_m'] = hard_error
+  record['soft_vs_hard_gate_gain_m'] = hard_error - final_error
   # 两个候选误差过于接近时，不强行判定Gate选择对错。
   if abs(direct_error - stereo_error) >= 0.2:
     selected = 'stereo' if diagnostic.get('effective_gate', 0.0) >= 0.5 else 'direct'
@@ -205,10 +217,12 @@ def summarize(records):
               'yaw_error_deg', 'bev_iou', 'iou_3d', 'iou_3d_fix_depth',
               'iou_3d_fix_center_xy', 'iou_3d_fix_dimensions',
               'iou_3d_fix_yaw', 'direct_depth_abs_error_m',
-              'stereo_center_abs_error_m',
+              'sgbm_center_abs_error_m', 'stereo_center_abs_error_m',
               'diagnostic_final_depth_abs_error_m',
               'candidate_oracle_abs_error_m', 'gate_regret_m',
-              'gate_blend_gain_m', 'sgbm_quality', 'effective_gate',
+              'gate_blend_gain_m', 'hard_gate_depth_abs_error_m',
+              'soft_vs_hard_gate_gain_m', 'offset_depth_gain_m',
+              'sgbm_quality', 'effective_gate',
               'uncertainty_m', 'geometry_offset_m', 'residual_offset_m'):
     summary[key + '_mean'] = mean(matched, key)
   for component in ('depth', 'center_xy', 'dimensions', 'yaw'):
@@ -234,6 +248,10 @@ def summarize(records):
   summary['gate_choice_accuracy'] = (
       sum(bool(r['gate_choice_correct']) for r in gate_choices) /
       len(gate_choices) if gate_choices else None)
+  offset_records = [r for r in with_diagnostics if r.get('offset_improved') is not None]
+  summary['offset_improves_ratio'] = (
+      sum(bool(r['offset_improved']) for r in offset_records) /
+      len(offset_records) if offset_records else None)
   return summary
 
 
@@ -340,7 +358,7 @@ def main():
   report['by_stereo_quality'] = {
       name: summarize([
           record for record in moderate_records
-          if quality_bucket(record.get('sgbm_quality')) == name])
+          if quality_bucket(record.get('sgbm_quality'), record.get('z_sgbm_m')) == name])
       for name in ('无诊断数据', '无效SGBM', '低质量<0.5',
                    '中质量0.5-0.8', '高质量>=0.8')}
   fallback_reasons = set()
