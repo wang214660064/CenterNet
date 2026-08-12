@@ -120,6 +120,10 @@ def test(opt):
 
 if __name__ == '__main__':
   opt = opts().parse()
+  if opt.task == 'stereo_ddd':
+    raise RuntimeError(
+        'stereo_ddd需要左右图、SGBM深度和质量图，请使用'
+        '`python src/main.py stereo_ddd ... --test`进行正式验证。')
   if opt.not_prefetch_test:
     test(opt)
   else:

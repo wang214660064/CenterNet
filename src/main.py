@@ -136,6 +136,8 @@ def main(opt):
 
   if opt.test:
     _, preds = trainer.val(0, val_loader)
+    if hasattr(trainer, 'save_detection_diagnostics'):
+      trainer.save_detection_diagnostics(opt.save_dir)
     val_loader.dataset.run_eval(preds, opt.save_dir)
     return
 

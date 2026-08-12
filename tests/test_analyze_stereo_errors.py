@@ -25,3 +25,29 @@ def test_summarize_reports_center_xy_oracle_gain():
   summary = MODULE.summarize([record])
   assert abs(summary['iou_3d_gain_fix_center_xy'] - 0.3) < 1e-6
   assert summary['location_xy_error_m_mean'] == 0.3
+
+
+def test_add_depth_diagnostics_measures_gate_choice_and_regret():
+  record = {'matched': True}
+  diagnostic = {
+      'z_direct_m': 19.0, 'z_stereo_m': 20.2, 'z_final_m': 20.1,
+      'z_sgbm_m': 18.0, 'sgbm_quality': 0.9,
+      'geometry_offset_m': 2.0, 'residual_offset_m': 0.2,
+      'predicted_offset_m': 2.2, 'safe_offset_m': 2.2,
+      'uncertainty_m': 0.3, 'learned_gate': 0.9, 'effective_gate': 0.9,
+      'stereo_safety_allowed': True, 'fallback_reason': None}
+  MODULE.add_depth_diagnostics(record, diagnostic, gt_depth=20.0)
+  assert record['diagnostics_available'] is True
+  assert abs(record['direct_depth_abs_error_m'] - 1.0) < 1e-6
+  assert abs(record['stereo_center_abs_error_m'] - 0.2) < 1e-6
+  assert record['preferred_depth_candidate'] == 'stereo'
+  assert record['gate_choice_correct'] is True
+  assert abs(record['gate_blend_gain_m'] - 0.1) < 1e-6
+
+
+def test_quality_bucket_boundaries():
+  assert MODULE.quality_bucket(None) == '无诊断数据'
+  assert MODULE.quality_bucket(-1.0) == '无效SGBM'
+  assert MODULE.quality_bucket(0.49) == '低质量<0.5'
+  assert MODULE.quality_bucket(0.5) == '中质量0.5-0.8'
+  assert MODULE.quality_bucket(0.8) == '高质量>=0.8'

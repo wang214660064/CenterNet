@@ -123,7 +123,7 @@ relative_error = (pred_dim - gt_dim) / max(|gt_dim|, 0.1)
 L_dim_v6b = SmoothL1(relative_error, beta=0.1)
 ```
 
-训练脚本关闭原始`dim_weight`，只启用`dimension_aware_weight=1.0`，并冻结深度、中心、朝向、2D检测头和骨干网络。该分支尚未训练，必须使用同一400帧比较尺寸MAE、平均3D IoU和Car 3D AP_R40。
+训练脚本关闭原始`dim_weight`，只启用`dimension_aware_weight=1.0`，并冻结深度、中心、朝向、2D检测头和骨干网络。该分支已在同一400帧完成评估：Car Moderate 3D AP_R40为`42.18`，低于v5的`42.24`；尺寸MAE为`0.16041m`，也略高于v5的`0.15987m`，因此不替代v5主线。
 
 ## 4. 门控监督与安全边界
 

@@ -2,9 +2,13 @@
 
 from __future__ import absolute_import, division, print_function
 
+import json
+import os
+
 import torch
 from torch.nn import functional as F
 
+from models.decode import _nms, _topk
 from models.utils import _transpose_and_gather_feat
 from models.networks.stereo_depth_offset import (
     campus_distance_weights, fuse_stereo_depth, regret_focal_gate_loss,
@@ -266,6 +270,11 @@ class StereoDddLoss(DddLoss):
 
 
 class StereoDddTrainer(DddTrainer):
+  def __init__(self, opt, model, optimizer=None):
+    super(StereoDddTrainer, self).__init__(opt, model, optimizer=optimizer)
+    # 仅在--test时填充，不参与训练，也不改变KITTI预测格式。
+    self.detection_diagnostics = {}
+
   def _get_losses(self, opt):
     loss_states = [
         'loss', 'hm_loss', 'dep_loss', 'dim_loss', 'rot_loss',
@@ -275,3 +284,97 @@ class StereoDddTrainer(DddTrainer):
         'dimension_aware_loss',
         'residual_offset_mean']
     return loss_states, StereoDddLoss(opt)
+
+  @staticmethod
+  def _gather_topk(feature, indices):
+    return _transpose_and_gather_feat(feature, indices).view(
+        feature.shape[0], indices.shape[1], -1)
+
+  def save_result(self, output, batch, results):
+    """保存KITTI预测，同时记录每个候选目标的完整深度形成过程。"""
+    super(StereoDddTrainer, self).save_result(output, batch, results)
+    if not self.opt.test or 'direct_dep' not in output:
+      return
+
+    scores, indices, classes, ys, xs = _topk(_nms(output['hm']), K=self.opt.K)
+    fields = {
+        'z_direct_m': output['direct_dep'],
+        'z_final_m': output['dep'],
+        'z_sgbm_m': batch['sgbm_depth'],
+        'sgbm_quality': batch['sgbm_quality'],
+        'geometry_offset_m': output['depth_geometry_offset'],
+        'residual_offset_m': output['depth_offset_residual'],
+        'predicted_offset_m': output['depth_offset'],
+        'safe_offset_m': output['safe_depth_offset'],
+        'log_variance': output['depth_log_variance'],
+        'gate_logit': output['depth_gate'],
+        'effective_gate': output['stereo_gate_mask'],
+    }
+    gathered = {
+        name: self._gather_topk(value, indices).detach().cpu()
+        for name, value in fields.items()}
+    scores = scores.detach().cpu()
+    classes = classes.detach().cpu()
+    xs, ys = xs.detach().cpu(), ys.detach().cpu()
+
+    image_id = int(batch['meta']['img_id'].detach().cpu().numpy()[0])
+    class_ranks = {}
+    detections = []
+    for index in range(self.opt.K):
+      score = float(scores[0, index])
+      if score <= self.opt.center_thresh:
+        continue
+      class_id = int(classes[0, index])
+      class_rank = class_ranks.get(class_id, 0)
+      class_ranks[class_id] = class_rank + 1
+      values = {
+          name: float(tensor[0, index, 0])
+          for name, tensor in gathered.items()}
+      values['z_stereo_m'] = values['z_sgbm_m'] + values['safe_offset_m']
+      values['uncertainty_m'] = float(torch.exp(
+          0.5 * torch.clamp(
+              gathered['log_variance'][0, index, 0], min=-5.0, max=5.0)))
+      values['learned_gate'] = float(torch.sigmoid(
+          gathered['gate_logit'][0, index, 0]))
+
+      far = values['z_sgbm_m'] >= self.opt.stereo_far_distance
+      required_quality = (
+          self.opt.stereo_far_min_quality if far else self.opt.stereo_min_quality)
+      allowed_uncertainty = (
+          self.opt.depth_offset_far_max_uncertainty if far
+          else self.opt.depth_offset_max_uncertainty)
+      reasons = []
+      if values['z_sgbm_m'] <= 0:
+        reasons.append('invalid_sgbm')
+      if values['z_sgbm_m'] >= self.opt.campus_warning_distance:
+        reasons.append('beyond_fusion_range')
+      if values['sgbm_quality'] < required_quality:
+        reasons.append('low_quality')
+      if values['z_stereo_m'] <= 0:
+        reasons.append('invalid_corrected_depth')
+      if values['uncertainty_m'] > allowed_uncertainty:
+        reasons.append('high_uncertainty')
+
+      detections.append({
+          'class_id': class_id,
+          'class_rank': class_rank,
+          'score': score,
+          'center_output': [float(xs[0, index]), float(ys[0, index])],
+          'stereo_safety_allowed': not reasons,
+          'fallback_reason': reasons or None,
+          **values,
+      })
+    self.detection_diagnostics['{:06d}'.format(image_id)] = detections
+
+  def save_detection_diagnostics(self, save_dir):
+    """输出独立JSON，避免把诊断字段混入KITTI官方预测文件。"""
+    path = os.path.join(save_dir, 'stereo_detection_diagnostics.json')
+    payload = {
+        'version': 1,
+        'description': '单帧双目3D检测的目标级深度形成过程',
+        'images': self.detection_diagnostics,
+    }
+    with open(path, 'w', encoding='utf-8') as stream:
+      json.dump(payload, stream, indent=2, ensure_ascii=False)
+    print('双目深度诊断：{}'.format(path))
+    return path

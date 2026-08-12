@@ -492,8 +492,53 @@ def dimension_v6b():
       '只训练已有dim头，车长、高度和宽度不再因为绝对米制不同而获得不均衡的损失权重',
       'v6b', body,
       ['v6b从v5最佳权重开始，只更新尺寸头；不影响检测、深度、投影中心或朝向。',
-       '当前状态：代码完成待训练，结果以project2000的400帧A/B评估为准。'],
+       '400帧评估未优于v5：Car Moderate 3D AP为42.18，因此作为未采用消融保留。'],
       '09_dimension_v6b.svg')
+
+
+def paper_mainline_framework():
+  """生成论文方法章节使用的主线框架图，只呈现已经验证的v4+v5结构。"""
+  body = ''.join([
+      node(35, 155, 250, 185, '双目与标定输入',
+           ['左图 image_2', '右图 image_3', '逐帧 P2 / P3 标定'], 'input', '输入'),
+      node(35, 475, 250, 185, '训练真值（仅训练）',
+           ['2D框、3D尺寸、朝向', '3D框底面中心 location', '不进入推理输入'], 'input', '监督'),
+      node(320, 155, 270, 220, 'CenterNet 图像分支',
+           ['DLA-34 + DLAUp + IDAUp', '共享图像特征 [64,96,320]',
+            '2D检测 / direct depth / dim / rot', '2D框中心与3D投影中心分离'], 'network', '学习'),
+      node(320, 475, 270, 185, 'StereoSGBM 几何分支',
+           ['稠密视差与表面深度', '有效比例、离散度、梯度质量', '保留可解释的双目几何'], 'geometry', '传统'),
+      node(625, 125, 330, 270, '质量感知深度融合',
+           ['双尺度特征融合 + ECA注意力', '目标级上下文聚合',
+            '预测 offset / uncertainty / gate', '低质量或远距时回退 direct depth'], 'fusion', '创新①'),
+      node(625, 495, 330, 190, 'Geometry Offset v4',
+           ['尺寸 + 朝向生成表面→中心先验', '质量 × 几何门控 × geometry offset',
+            '+ 学习残差 offset', 'dim / rot detach，避免反向干扰'], 'geometry', '创新②'),
+      node(990, 150, 330, 245, 'Projected Center v5',
+           ['2D框：bbox center + wh', '3D中心：bbox center + proj offset',
+            '3D中心投影 + z_final + P2', '反投影得到相机坐标 x / y / z'], 'network', '创新③'),
+      node(990, 515, 330, 170, '输出与部署边界',
+           ['2D类别、置信度、2D框', '3D尺寸、朝向、相机坐标',
+            '0～30m为园区核心3D范围', '仅教学验证，不直接控制车辆'], 'output', '输出'),
+      arrow(285, 245, 310, 245, '左图特征'),
+      arrow(285, 565, 310, 565, '左右图'),
+      arrow(590, 265, 615, 265, '图像特征'),
+      arrow(590, 570, 615, 590, 'SGBM质量'),
+      arrow(955, 265, 980, 265, 'z_final'),
+      arrow(955, 590, 980, 600, '几何先验'),
+      arrow(1155, 395, 1155, 505, '3D结果'),
+      path_arrow([(160, 475), (160, 420), (790, 420), (790, 395)],
+                 '训练损失', dashed=True, color='#DC2626'),
+      path_arrow([(160, 475), (160, 710), (1155, 710), (1155, 695)],
+                 '仅训练期监督', dashed=True, color='#DC2626'),
+  ])
+  base_svg(
+      '园区低速车双目3D检测：已验证网络主线',
+      '统一端到端图像特征、可解释SGBM几何和逐帧相机标定；红色虚线仅在训练阶段存在',
+      '论文主线', body,
+      ['三项核心创新：质量感知深度融合、尺寸朝向约束的几何offset、2D/3D中心解耦。',
+       '在project2000的400帧验证集上，v5的Car Moderate 3D AP_R40为42.24。'],
+      '10_paper_mainline_framework.svg')
 
 
 def main():
@@ -508,7 +553,8 @@ def main():
   projected_v6a()
   projected_v7_iou()
   dimension_v6b()
-  print('已生成10张SVG：{}'.format(OUTPUT_DIR))
+  paper_mainline_framework()
+  print('已生成11张SVG：{}'.format(OUTPUT_DIR))
 
 
 if __name__ == '__main__':

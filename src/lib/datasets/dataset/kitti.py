@@ -12,6 +12,7 @@ import os
 import math
 import shutil
 import subprocess
+import sys
 
 import torch.utils.data as data
 
@@ -104,10 +105,23 @@ class KITTI(data.Dataset):
         'evaluate_object_3d_offline'))
     # KITTI 官方评估程序内部直接拼接目录和文件名，因此预测目录末尾必须有分隔符。
     results_dir = eval_results_dir + os.sep
-    completed = subprocess.run(
-        [eval_binary, gt_dir, results_dir],
-        check=True, capture_output=True, text=True)
     eval_log = os.path.join(save_dir, 'kitti_eval.log')
+    try:
+      completed = subprocess.run(
+          [eval_binary, gt_dir, results_dir],
+          check=True, capture_output=True, text=True)
+    except OSError as error:
+      # 仓库内置的官方评估器是Linux ELF，macOS本地只保留预测和诊断结果。
+      if sys.platform == 'darwin' and error.errno == 8:
+        message = (
+            'macOS无法运行Linux版KITTI官方评估器；'
+            '已保留results、ground_truth和双目诊断JSON，'
+            '正式AP请在Linux服务器计算。')
+        with open(eval_log, 'w', encoding='utf-8') as stream:
+          stream.write(message + '\n')
+        print(message)
+        return
+      raise
     with open(eval_log, 'w', encoding='utf-8') as stream:
       stream.write(completed.stdout)
       stream.write(completed.stderr)

@@ -13,12 +13,15 @@ import numpy as np
 
 DISTANCE_BUCKETS = ((0, 15, '0-15m'), (15, 30, '15-30m'),
                     (30, 50, '30-50m'), (50, float('inf'), '50m以上'))
+CLASS_IDS = {'Pedestrian': 0, 'Car': 1, 'Cyclist': 2}
 
 
 def parse_args():
   parser = argparse.ArgumentParser(description='分解Stereo DDD验证误差')
   parser.add_argument('--eval-dir', default='exp/stereo_ddd/stereo_sgbm_offset_eval')
   parser.add_argument('--sgbm-json', default='exp/stereo_stage2/sgbm_depth_metrics.json')
+  parser.add_argument('--diagnostics-json', default=None,
+                      help='默认读取eval-dir下的目标级双目诊断JSON')
   parser.add_argument('--annotations', default='data/kitti/annotations/kitti_3dop_val.json')
   parser.add_argument('--score-thresh', type=float, default=0.25)
   parser.add_argument('--match-iou', type=float, default=0.5)
@@ -29,13 +32,18 @@ def read_kitti(path, prediction=False):
   objects = []
   if not os.path.exists(path):
     return objects
+  class_ranks = {}
   with open(path, 'r') as stream:
     for line in stream:
       values = line.split()
       if len(values) < 15:
         continue
+      class_name = values[0]
+      class_rank = class_ranks.get(class_name, 0)
+      class_ranks[class_name] = class_rank + 1
       objects.append({
-          'class': values[0], 'truncation': float(values[1]),
+          'class': class_name, 'class_rank': class_rank,
+          'truncation': float(values[1]),
           'occlusion': int(values[2]), 'alpha': float(values[3]),
           'bbox': np.asarray(values[4:8], dtype=np.float32),
           'dimensions': np.asarray(values[8:11], dtype=np.float32),
@@ -111,6 +119,74 @@ def distance_bucket(depth):
       return name
 
 
+def quality_bucket(quality):
+  if quality is None:
+    return '无诊断数据'
+  if quality < 0:
+    return '无效SGBM'
+  if quality < 0.5:
+    return '低质量<0.5'
+  if quality < 0.8:
+    return '中质量0.5-0.8'
+  return '高质量>=0.8'
+
+
+def load_diagnostics(path):
+  """按原始帧号、类别和该类候选顺序建立索引。"""
+  if not path or not os.path.exists(path):
+    return {}
+  with open(path, 'r', encoding='utf-8') as stream:
+    payload = json.load(stream)
+  indexed = {}
+  for image_id, detections in payload.get('images', {}).items():
+    for detection in detections:
+      key = (str(image_id).zfill(6), int(detection['class_id']),
+             int(detection['class_rank']))
+      indexed[key] = detection
+  return indexed
+
+
+def add_depth_diagnostics(record, diagnostic, gt_depth):
+  """将深度融合中间量展开为可统计字段。"""
+  if diagnostic is None:
+    record['diagnostics_available'] = False
+    return
+  record['diagnostics_available'] = True
+  copied_fields = (
+      'z_direct_m', 'z_stereo_m', 'z_final_m', 'z_sgbm_m', 'sgbm_quality',
+      'geometry_offset_m', 'residual_offset_m', 'predicted_offset_m',
+      'safe_offset_m', 'uncertainty_m', 'learned_gate', 'effective_gate',
+      'stereo_safety_allowed', 'fallback_reason')
+  for key in copied_fields:
+    record[key] = diagnostic.get(key)
+
+  direct = diagnostic.get('z_direct_m')
+  stereo = diagnostic.get('z_stereo_m')
+  final = diagnostic.get('z_final_m')
+  if direct is not None:
+    record['direct_depth_abs_error_m'] = abs(direct - gt_depth)
+  if stereo is not None and stereo > 0:
+    record['stereo_center_abs_error_m'] = abs(stereo - gt_depth)
+  if final is not None:
+    record['diagnostic_final_depth_abs_error_m'] = abs(final - gt_depth)
+
+  if direct is None or stereo is None or stereo <= 0 or final is None:
+    return
+  direct_error = record['direct_depth_abs_error_m']
+  stereo_error = record['stereo_center_abs_error_m']
+  oracle_error = min(direct_error, stereo_error)
+  final_error = record['diagnostic_final_depth_abs_error_m']
+  record['candidate_oracle_abs_error_m'] = oracle_error
+  record['gate_regret_m'] = max(0.0, final_error - oracle_error)
+  record['gate_blend_gain_m'] = oracle_error - final_error
+  record['preferred_depth_candidate'] = (
+      'stereo' if stereo_error < direct_error else 'direct')
+  # 两个候选误差过于接近时，不强行判定Gate选择对错。
+  if abs(direct_error - stereo_error) >= 0.2:
+    selected = 'stereo' if diagnostic.get('effective_gate', 0.0) >= 0.5 else 'direct'
+    record['gate_choice_correct'] = selected == record['preferred_depth_candidate']
+
+
 def mean(records, key):
   values = [record[key] for record in records if record.get(key) is not None]
   return float(np.mean(values)) if values else None
@@ -128,7 +204,12 @@ def summarize(records):
               'sgbm_abs_error_m', 'dimension_mae_m', 'dimension_relative_error',
               'yaw_error_deg', 'bev_iou', 'iou_3d', 'iou_3d_fix_depth',
               'iou_3d_fix_center_xy', 'iou_3d_fix_dimensions',
-              'iou_3d_fix_yaw'):
+              'iou_3d_fix_yaw', 'direct_depth_abs_error_m',
+              'stereo_center_abs_error_m',
+              'diagnostic_final_depth_abs_error_m',
+              'candidate_oracle_abs_error_m', 'gate_regret_m',
+              'gate_blend_gain_m', 'sgbm_quality', 'effective_gate',
+              'uncertainty_m', 'geometry_offset_m', 'residual_offset_m'):
     summary[key + '_mean'] = mean(matched, key)
   for component in ('depth', 'center_xy', 'dimensions', 'yaw'):
     fixed_key = 'iou_3d_fix_' + component
@@ -141,15 +222,34 @@ def summarize(records):
       max(len(valid_stereo), 1))
   summary['iou_3d_at_0_7_ratio'] = (
       sum(r['iou_3d'] >= 0.7 for r in matched) / max(len(matched), 1))
+  with_diagnostics = [r for r in matched if r.get('diagnostics_available')]
+  summary['diagnostics_coverage_ratio'] = (
+      len(with_diagnostics) / max(len(matched), 1))
+  safety_records = [
+      r for r in with_diagnostics if r.get('stereo_safety_allowed') is not None]
+  summary['stereo_safety_allowed_ratio'] = (
+      sum(bool(r['stereo_safety_allowed']) for r in safety_records) /
+      max(len(safety_records), 1))
+  gate_choices = [r for r in with_diagnostics if r.get('gate_choice_correct') is not None]
+  summary['gate_choice_accuracy'] = (
+      sum(bool(r['gate_choice_correct']) for r in gate_choices) /
+      len(gate_choices) if gate_choices else None)
   return summary
 
 
 def main():
   args = parse_args()
+  diagnostics_path = args.diagnostics_json or os.path.join(
+      args.eval_dir, 'stereo_detection_diagnostics.json')
+  diagnostics = load_diagnostics(diagnostics_path)
+  # 报告中记录实际解析的默认路径，方便复现。
+  args.diagnostics_json = diagnostics_path
   with open(args.annotations, 'r') as stream:
     images = sorted(json.load(stream)['images'], key=lambda item: int(item['id']))
-  with open(args.sgbm_json, 'r') as stream:
-    sgbm_records = json.load(stream)['records']
+  sgbm_records = []
+  if args.sgbm_json and os.path.exists(args.sgbm_json):
+    with open(args.sgbm_json, 'r') as stream:
+      sgbm_records = json.load(stream).get('records', [])
   sgbm_by_target = {}
   for record in sgbm_records:
     key = (record['image_id'], record['class_name'],
@@ -220,6 +320,10 @@ def main():
             'iou_3d_fix_center_xy': iou_fix_center_xy,
             'iou_3d_fix_dimensions': iou_fix_dimensions,
             'iou_3d_fix_yaw': iou_fix_yaw})
+        diagnostic_key = (
+            image_id, CLASS_IDS.get(pred['class'], -1), pred['class_rank'])
+        add_depth_diagnostics(
+            record, diagnostics.get(diagnostic_key), float(gt['location'][2]))
       records.append(record)
 
   moderate_records = [record for record in records if record['moderate']]
@@ -233,6 +337,20 @@ def main():
           record for record in records if record['occlusion'] == level])
           for level in range(4)},
   }
+  report['by_stereo_quality'] = {
+      name: summarize([
+          record for record in moderate_records
+          if quality_bucket(record.get('sgbm_quality')) == name])
+      for name in ('无诊断数据', '无效SGBM', '低质量<0.5',
+                   '中质量0.5-0.8', '高质量>=0.8')}
+  fallback_reasons = set()
+  for record in moderate_records:
+    fallback_reasons.update(record.get('fallback_reason') or [])
+  report['by_fallback_reason'] = {
+      reason: summarize([
+          record for record in moderate_records
+          if reason in (record.get('fallback_reason') or [])])
+      for reason in sorted(fallback_reasons)}
   matched = [record for record in moderate_records if record['matched']]
   report['representative_frames'] = {
       'largest_depth_errors': [r['image_id'] for r in sorted(

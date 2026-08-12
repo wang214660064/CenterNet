@@ -1,5 +1,26 @@
 # 项目记录
 
+## 2026-08-12：收敛为单帧双目3D检测，补齐Gate/Offset诊断
+
+- 工作边界固定为单帧双目3D目标检测；跟踪、速度/TTC、预测、规划和控制不在本仓库优化范围内；
+- `src/main.py stereo_ddd ... --test`在原KITTI预测外新增`stereo_detection_diagnostics.json`，记录每个候选的Direct深度、SGBM深度、质量、几何/残差Offset、Gate、不确定性和回退原因；
+- `src/tools/analyze_stereo_errors.py`新增目标级诊断关联，输出Gate选择正确率、Gate regret、Direct/SGBM/融合深度误差，并按SGBM质量和回退原因分桶；
+- 禁止使用缺少右图和SGBM输入的`src/test.py`评估`stereo_ddd`，避免静默退化为直接深度；
+- macOS本地无法运行仓库内置的Linux KITTI官方评估器时，明确跳过AP计算并保留预测、真值和诊断产物；Linux服务器行为不变；
+- 8项相关单元测试通过；使用`clip`环境、v5第26轮最佳权重和真实KITTI帧`000002`完成CPU端到端前向，诊断JSON包含1个有效Car候选；
+- 单帧只用于验证链路，不作性能结论。下一步在Linux服务器对固定400帧验证集重新推理，再根据Gate regret和分距离结果决定是否仅优化Gate标定或Offset残差，不预先增加新网络模块。
+
+## 2026-08-11：新增YOLOv8风格总览框架SVG
+
+- 参考YOLOv8网络架构图风格，新增总览框架图`docs/architecture/11_yolov8_style_framework.svg`；
+- 复核并修正框架逻辑：DLA只接收左图，SGBM由左右图和P2/P3并行产生；拆分`z_sgbm`、`quality`、`target_features`和各检测头到融合/解码的独立连接；
+- 图中分别展示DLA-34骨干、CenterNet检测头、SGBM质量编码、质量感知融合、Geometry Offset v4、Depth Fusion Gate和Projected Center v5；
+- 通过颜色区分输入、图像骨干、检测头、双目几何、融合创新模块和解码输出；
+- 底部保留连线语义、园区距离策略、验证指标与教学原型安全边界；
+- 新增生成脚本`src/tools/generate_yolov8_style_architecture.py`，使用Python标准库，无需额外绘图依赖；
+- 使用PNG整图渲染进行视觉检查，并验证SVG无XML解析错误；
+- 同步更新`docs/architecture/README_CN.md`版本列表和重新生成说明。
+
 ## 2026-08-10：Dimension v6b相对尺寸损失
 
 - 新增`--train_dimension_only`，从v5最佳权重初始化，只训练已有`dim`尺寸头；
@@ -9,6 +30,10 @@
 - 修复零权重损失的统计类型：关闭某项损失时仍返回独立零值Tensor，避免进度条调用`.mean()`报错；
 - 34项自动化测试通过；真实KITTI验证帧完成前向和反向传播，原始`dim_loss`为0，新相对尺寸损失为`0.02727`，只有`dim`头4个参数张量获得梯度；
 - 新训练入口为`experiments/stereo_ddd_dimension_v6b.sh`，尚未启动正式训练，必须与v5在同一400帧验证集比较。
+- 服务器训练在第6轮早停；保存的最佳权重为第1轮，后续最低验证损失虽为`4.80674`，但相对改善未达到早停阈值`0.002`；
+- 在`project2000`同一400帧验证集完成正式评估，Car Moderate BEV/3D AP_R40为`45.75/42.18`，低于v5的`45.87/42.24`；
+- 尺寸MAE由v5的`0.15987m`微升至`0.16041m`，相对尺寸误差由`6.17%`升至`6.22%`；平均3D IoU由`0.53321`降至`0.53299`，`IoU≥0.7`比例由`26.07%`降至`25.53%`；
+- 仅0～15m尺寸MAE由`0.14362m`降至`0.14230m`，15～50m均未改善；结论是相对尺寸损失不替代v5，后续仍优先解决深度与投影中心误差。
 
 ## 2026-08-10：Projected Center v7尺度归一化重叠代理损失
 
