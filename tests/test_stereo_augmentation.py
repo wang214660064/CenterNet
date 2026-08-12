@@ -5,12 +5,10 @@ import numpy as np
 import pytest
 
 
-SRC = Path(__file__).parents[1] / 'src'
-LIB = SRC / 'lib'
-sys.path.insert(0, str(SRC))
+LIB = Path(__file__).parents[1] / 'src' / 'lib'
 sys.path.insert(0, str(LIB))
 
-from lib.utils.stereo_augmentation import augment_stereo_pair
+from utils.stereo_augmentation import augment_stereo_pair
 from datasets.sample.stereo_ddd import StereoDddDataset
 
 
