@@ -14,6 +14,7 @@ from utils.image import flip, color_aug
 from utils.image import get_affine_transform, affine_transform
 from utils.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 from utils.ddd_utils import project_3d_center_to_image
+from utils.backbone_augmentation import augment_backbone_image
 import pycocotools.coco as coco
 
 class DddDataset(data.Dataset):
@@ -30,6 +31,14 @@ class DddDataset(data.Dataset):
     img_info = self.coco.loadImgs(ids=[img_id])[0]
     img_path = os.path.join(self.img_dir, img_info['file_name'])
     img = cv2.imread(img_path)
+    if img is None:
+      raise RuntimeError('无法读取图像: {}'.format(img_path))
+    if self.split == 'train' and self.opt.backbone_photo_aug:
+      # 这个图像副本只进入Backbone。StereoDddDataset会另行读取
+      # 原始左右图计算SGBM，因此视差和质量监督不受影响。
+      img, _ = augment_backbone_image(
+          img, probability=self.opt.backbone_photo_aug_prob,
+          strength=self.opt.backbone_photo_aug_strength)
     if 'calib' in img_info:
       calib = np.array(img_info['calib'], dtype=np.float32)
     else:

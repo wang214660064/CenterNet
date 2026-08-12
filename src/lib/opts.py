@@ -253,6 +253,13 @@ class opts(object):
                              help='远距离启用SGBM修正的最低质量')
     self.parser.add_argument('--stereo_quality_window', type=int, default=31,
                              help='计算局部SGBM有效比例的窗口尺寸')
+    self.parser.add_argument('--backbone_photo_aug', action='store_true',
+                             help='训练时只对Backbone左图开启外观增强')
+    self.parser.add_argument('--backbone_photo_aug_prob', type=float,
+                             default=0.5, help='Backbone外观增强概率')
+    self.parser.add_argument('--backbone_photo_aug_strength', type=float,
+                             default=0.15,
+                             help='Backbone外观增强强度，范围0到0.3')
     self.parser.add_argument('--depth_offset_max_uncertainty', type=float, default=10.0,
                              help='启用offset修正的最大预测标准差')
     self.parser.add_argument('--depth_offset_far_max_uncertainty', type=float, default=3.0,

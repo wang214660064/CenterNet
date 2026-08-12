@@ -28,6 +28,7 @@
 - [X] 完成Dimension v6b训练与400帧评估：相对尺寸Smooth L1未优于v5，保留为消融；
 - [X] 完成3D属性头小学习率解冻消融：Car Moderate 3D AP_R40降至29.44，该分支不采用；当前最佳模型为Projected Center v5（42.24）；
 - [X] 正式验证新增目标级深度诊断：分解Direct/SGBM/Offset/Gate/不确定性及回退原因；
+- [X] 实现只进入Backbone的左目外观增强，SGBM始终使用原始左右图；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
 - [x] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40（最佳权重第10轮，Car Moderate 3D AP_R40 30.88）。
@@ -131,6 +132,24 @@ bash experiments/stereo_ddd_dimension_v6b.sh
 ```
 
 后续训练、验证、AP和距离分桶均以 `project2000` 为准，原3DOP划分仅作为历史资料保留，不再作为项目默认评测口径。
+
+Backbone外观增强通过`--backbone_photo_aug`显式开启，只对训练集中进入
+DLA-34的左图副本调整亮度、对比度、Gamma、饱和度和轻微色温。
+SGBM视差、深度、质量图和Offset监督仍由原始左右图计算，验证和推理
+不做增强。该功能不改变数据字段、张量尺寸、标注或标定。启动正式训练前可视化检查：
+
+```bash
+python src/tools/visualize_backbone_augmentation.py --image-id 000008
+```
+
+从v5最佳权重出发，使用`1e-6`学习率微调全模型的单变量候选入口：
+
+```bash
+bash experiments/stereo_ddd_backbone_photo_aug_full_finetune.sh
+```
+
+该实验会同时更新Backbone、2D/3D检测头和双目融合分支。正式结论必须
+在固定400帧验证集与v5比较2D、BEV、3D AP_R40和分距离深度误差。
 
 划分与训练是两个独立步骤。先运行划分命令并检查 `data/kitti/ImageSets_project2000/train.txt`、`val.txt` 和 `summary.json`；确认后再单独执行训练脚本。左右图不会复制到数据集目录，清单中的帧号仍引用原始 `training/image_2` 和 `training/image_3`。
 
