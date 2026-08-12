@@ -28,7 +28,8 @@
 - [X] 完成Dimension v6b训练与400帧评估：相对尺寸Smooth L1未优于v5，保留为消融；
 - [X] 完成3D属性头小学习率解冻消融：Car Moderate 3D AP_R40降至29.44，该分支不采用；当前最佳模型为Projected Center v5（42.24）；
 - [X] 正式验证新增目标级深度诊断：分解Direct/SGBM/Offset/Gate/不确定性及回退原因；
-- [X] 完成Gate Calibration v8单变量训练入口：只校准257个Gate头参数，等待服务器A/B验证；
+- [X] 完成Gate Calibration v8正式评估：未超过v5，作为单独校准无效的消融实验；
+- [X] 完成Stereo Photo Augmentation v9：双目同步轻量光照增强、单侧成像差异与增强后SGBM重算；
 - [X] 完成LightStereo候选A/B并确定继续只使用SGBM；
 - [X] 完成真实样本前向、反向传播和单迭代训练验证；
 - [x] 在GPU环境完成3DOP训练并评估KITTI 3D AP_R40（最佳权重第10轮，Car Moderate 3D AP_R40 30.88）。
@@ -137,7 +138,27 @@ Gate Calibration v8从v5最佳权重开始，冻结骨干、2D/3D属性头、Pro
 bash experiments/stereo_ddd_gate_calibration_v8.sh
 ```
 
-v8使用`depth_fusion_loss`选择最佳权重，必须与v5在同一`project2000` 400帧验证集比较；当前只完成实现和真实样本反向传播，尚无正式性能结论。
+v8使用`depth_fusion_loss`选择最佳权重，并已在同一`project2000`
+400帧验证集与v5完成正式比较。
+
+v8服务器训练在第6轮早停。第6轮相对v5的Car Moderate 3D AP_R40由
+`42.231`降至`42.140`，深度MAE只由`0.84711m`变为`0.84709m`，
+该差异属于统计波动，因此不代替v5。
+
+Stereo Photo Augmentation v9只在训练集生效，不做翻转、旋转、Mosaic或透视变换。
+左右图以50%概率共享Gamma、亮度、对比度和轻微色温变化，另以15%概率
+仅对单侧添加轻微曝光、噪声或模糊。增强后重新计算SGBM视差、深度和质量图，
+不改变图像尺寸、像素坐标或KITTI标定。单变量Gate v9训练入口：
+
+```bash
+bash experiments/stereo_ddd_gate_photo_aug_v9.sh
+```
+
+在启动训练前可生成一张增强前后对比图：
+
+```bash
+python src/tools/visualize_stereo_augmentation.py --image-id 000008
+```
 
 后续训练、验证、AP和距离分桶均以 `project2000` 为准，原3DOP划分仅作为历史资料保留，不再作为项目默认评测口径。
 
