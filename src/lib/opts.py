@@ -225,6 +225,12 @@ class opts(object):
                              help='两种深度误差差小于该值时忽略gate监督，单位m')
     self.parser.add_argument('--depth_gate_max_regret', type=float, default=4.0,
                              help='门控错误代价权重的最大附加值')
+    self.parser.add_argument('--depth_gate_core_range_weight', type=float,
+                             default=1.0,
+                             help='15～30m Gate校准样本附加权重')
+    self.parser.add_argument('--depth_gate_mid_quality_weight', type=float,
+                             default=1.0,
+                             help='中等SGBM质量Gate校准样本附加权重')
     self.parser.add_argument('--campus_near_distance', type=float, default=15.0,
                              help='园区近距离边界，单位m')
     self.parser.add_argument('--campus_core_distance', type=float, default=30.0,
@@ -265,6 +271,8 @@ class opts(object):
                              help='近距离允许的最小offset上限，单位m')
     self.parser.add_argument('--train_stereo_only', action='store_true',
                              help='冻结骨干和常规检测头，只训练双目offset分支')
+    self.parser.add_argument('--train_gate_only', action='store_true',
+                             help='只训练深度Gate头，用于单变量校准A/B')
     self.parser.add_argument('--train_projected_center_only', action='store_true',
                              help='只训练3D中心投影偏移头，用于单变量A/B')
     self.parser.add_argument('--train_dimension_only', action='store_true',

@@ -122,6 +122,21 @@ def campus_distance_weights(depth, near_distance=15.0, core_distance=30.0,
               torch.full_like(depth, beyond_weight))))
 
 
+def gate_focus_weights(depth, quality, near_distance=15.0,
+                       core_distance=30.0, min_quality=0.5,
+                       high_quality=0.8, core_weight=1.0,
+                       mid_quality_weight=1.0):
+  """Gate校准样本权重：突出15～30m和中等质量样本。"""
+  core_range = (depth >= near_distance) & (depth < core_distance)
+  mid_quality = (quality >= min_quality) & (quality < high_quality)
+  weight = torch.ones_like(depth)
+  weight = torch.where(
+      core_range, weight * core_weight, weight)
+  weight = torch.where(
+      mid_quality, weight * mid_quality_weight, weight)
+  return weight
+
+
 def regret_focal_gate_loss(logits, stereo_error, direct_error, valid_mask,
                            distance_weight, gamma=2.0, alpha=0.5,
                            ambiguity_margin=0.2, max_regret=4.0):

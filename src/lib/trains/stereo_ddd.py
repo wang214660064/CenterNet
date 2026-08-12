@@ -11,7 +11,8 @@ from torch.nn import functional as F
 from models.decode import _nms, _topk
 from models.utils import _transpose_and_gather_feat
 from models.networks.stereo_depth_offset import (
-    campus_distance_weights, fuse_stereo_depth, regret_focal_gate_loss,
+    campus_distance_weights, fuse_stereo_depth, gate_focus_weights,
+    regret_focal_gate_loss,
     stereo_huber_uncertainty_loss)
 from .ddd import DddLoss, DddTrainer
 
@@ -233,29 +234,43 @@ class StereoDddLoss(DddLoss):
                    (uncertainty <= uncertainty_limit)).to(
                        dtype=predicted_gate_logits.dtype)
       gate_mask = mask * safe_mask
+      gate_training_weight = distance_weight * gate_focus_weights(
+          target_depth, sgbm_quality,
+          near_distance=self.opt.campus_near_distance,
+          core_distance=self.opt.campus_core_distance,
+          min_quality=self.opt.stereo_min_quality,
+          high_quality=self.opt.stereo_far_min_quality,
+          core_weight=self.opt.depth_gate_core_range_weight,
+          mid_quality_weight=self.opt.depth_gate_mid_quality_weight)
 
       # 真值只用于生成训练门控标签；推理阶段不会读取标签。
       stereo_error = torch.abs(corrected_depth - target_depth)
       direct_error = torch.abs(direct_depth - target_depth)
       gate_loss += regret_focal_gate_loss(
           predicted_gate_logits, stereo_error, direct_error, gate_mask,
-          distance_weight, gamma=self.opt.depth_gate_focal_gamma,
+          gate_training_weight, gamma=self.opt.depth_gate_focal_gamma,
           alpha=self.opt.depth_gate_focal_alpha,
           ambiguity_margin=self.opt.depth_gate_ambiguity_margin,
           max_regret=self.opt.depth_gate_max_regret) / len(outputs)
       fusion_per_target = F.smooth_l1_loss(
           final_depth, target_depth, reduction='none', beta=1.0)
-      fusion_weight = gate_mask * distance_weight
+      fusion_weight = gate_mask * gate_training_weight
       fusion_depth_loss += (
           (fusion_per_target * fusion_weight).sum() /
           torch.clamp(fusion_weight.sum(), min=1.0) / len(outputs))
-    loss = (base_loss + self.opt.depth_offset_weight * offset_loss +
-            self.opt.depth_gate_weight * gate_loss +
-            self.opt.depth_fusion_weight * fusion_depth_loss +
-            self.opt.proj_center_weight * proj_center_loss +
-            self.opt.proj_center_xy_weight * proj_center_xy_loss +
-            self.opt.proj_center_iou_weight * proj_center_iou_loss +
-            self.opt.dimension_aware_weight * dimension_aware_loss)
+    if self.opt.train_gate_only:
+      # v8单变量实验的总损失只保留Gate相关项，
+      # 其余损失仍作为终端诊断指标显示。
+      loss = (self.opt.depth_gate_weight * gate_loss +
+              self.opt.depth_fusion_weight * fusion_depth_loss)
+    else:
+      loss = (base_loss + self.opt.depth_offset_weight * offset_loss +
+              self.opt.depth_gate_weight * gate_loss +
+              self.opt.depth_fusion_weight * fusion_depth_loss +
+              self.opt.proj_center_weight * proj_center_loss +
+              self.opt.proj_center_xy_weight * proj_center_xy_loss +
+              self.opt.proj_center_iou_weight * proj_center_iou_loss +
+              self.opt.dimension_aware_weight * dimension_aware_loss)
     stats['loss'] = loss
     stats['depth_offset_loss'] = offset_loss
     stats['depth_gate_loss'] = gate_loss
